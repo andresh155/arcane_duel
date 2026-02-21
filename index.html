@@ -650,31 +650,21 @@ body::after {
 
 <script>
 /* ═══════════════════════════════════════════════════════════
-   ARCANE DUEL — Online Multiplayer via PeerJS (WebRTC P2P)
+   ARCANE DUEL — Online Multiplayer (PeerJS WebRTC)
 
-   Flow:
-   HOST: Creates peer → gets roomID → shares link → waits
-   GUEST: Opens link?room=ID → connects to host
-   Both: Enter 8 words → host generates all cards → game starts
-   Sync: All actions sent as JSON messages over P2P DataChannel
-         HOST is authoritative; sends full state after each action
+   NETWORK FLOW:
+   HOST: create peer → get ID → share link → wait for guest
+   GUEST: open link?room=ID → connect to host peer
+   BOTH: go to pregame → enter 8 words → lock in
+   HOST: receives both word sets → generates all cards →
+         sends full game_state to guest → game starts
+   SYNC: every action guest does → sent to host as 'action'
+         host processes it → sends updated game_state back
+         host's own actions → processed locally → broadcast
 ═══════════════════════════════════════════════════════════ */
 
-// ─── NETWORK STATE ─────────────────────────────────────────
-const NET = {
-  peer: null,       // Our PeerJS peer
-  conn: null,       // DataConnection to opponent
-  isHost: false,    // Are we the game host?
-  myRole: null,     // 'p1' (host) or 'p2' (guest)
-  roomId: null,     // The room/peer ID used
-  myWordsReady: false,
-  oppWordsReady: false,
-  myWords: [],
-  oppWords: [],
-};
-
-// ─── EMOJI MAP ─────────────────────────────────────────────
-const EMOJIS = {
+// ─── EMOJI MAP ──────────────────────────────────────────────
+const EMOJIS={
   default:['⚔️','🗡️','🔥','💀','🌑','⚡','🌊','🍃','🌪️','❄️','☄️','🪄','🔮','🌙','💎','🐉','🦅','🐺','🦁','🕷️'],
   chainsaw:'🪚',wizard:'🧙',dragon:'🐉',fire:'🔥',ice:'❄️',water:'🌊',
   shadow:'🌑',lightning:'⚡',stone:'🪨',tree:'🌳',sword:'⚔️',shield:'🛡️',
@@ -684,85 +674,70 @@ const EMOJIS = {
   taxation:'📜',sadness:'😢',chaos:'🌀',time:'⏳',death:'💀',love:'💖',
   darkness:'🌑',light:'✨',music:'🎵',book:'📖',bomb:'💣',robot:'🤖',
 };
+function getEmoji(w){const l=w.toLowerCase();if(EMOJIS[l])return EMOJIS[l];for(const[k,v]of Object.entries(EMOJIS))if(k!=='default'&&l.includes(k))return v;const d=EMOJIS.default;return d[Math.abs(hc(l))%d.length];}
+function hc(s){let h=0;for(let i=0;i<s.length;i++)h=Math.imul(31,h)+s.charCodeAt(i)|0;return h;}
 
-function getEmoji(word){
-  const l=word.toLowerCase();
-  if(EMOJIS[l])return EMOJIS[l];
-  for(const[k,v]of Object.entries(EMOJIS))if(l.includes(k))return v;
-  const d=EMOJIS.default;return d[Math.abs(hashCode(l))%d.length];
-}
-
-function hashCode(s){let h=0;for(let i=0;i<s.length;i++)h=Math.imul(31,h)+s.charCodeAt(i)|0;return h;}
-
-// ─── CARD GENERATION (MOCK) ───────────────────────────────
-function mockGenerateCard(word){
-  const l=word.toLowerCase(),len=l.length,h=Math.abs(hashCode(l));
+// ─── CARD GENERATION ────────────────────────────────────────
+function mkCard(word){
+  const l=word.toLowerCase(),len=l.length,h=Math.abs(hc(l));
   const isD=/war|kill|death|bomb|fire|destroy|blast|doom|axe|sword|saw|chain|gun|rage|blood|chaos|slash|murder|havoc|wreck/.test(l);
   const isF=/shield|guard|wall|armor|fortress|protect|stone|iron|defend|ward/.test(l);
   const isM=/wizard|magic|spell|curse|witch|mystic|arcane|rune|sorcery|void|shadow|ench/.test(l);
   const isN=/tree|forest|vine|seed|water|ocean|earth|wind|wolf|bear|eagle|snake|dragon|flower/.test(l);
   const isE=/sad|happy|love|fear|anger|joy|grief|pain|hope|melancholy|depression|anxiety|bless/.test(l);
   const isT=/robot|machine|digital|cyber|code|tech|electric|laser|plasma|circuit|android/.test(l);
-
   let base=1+(len%4);
   if(isD)base+=2;if(isM)base+=1;
   const cost=Math.min(10,Math.max(1,base+(h%3)-1));
-  const atk =Math.min(12,Math.max(1,base+(h%3)));
-  const hp  =Math.min(12,Math.max(1,(isF?base+3:base)+(h%2)));
+  const atk=Math.min(12,Math.max(1,base+(h%3)));
+  const hp=Math.min(12,Math.max(1,(isF?base+3:base)+(h%2)));
   const multi=isD&&len>=6&&h%3===0;
   const atkStr=multi?`${Math.ceil(atk/2)}x2`:String(atk);
-  return{
-    id:`${l}_${Date.now()}_${h}`,
-    name:word.charAt(0).toUpperCase()+l.slice(1),
-    cost,hp,maxHp:hp,
+  return{id:`${l}_${h}`,name:word.charAt(0).toUpperCase()+l.slice(1),cost,hp,maxHp:hp,
     attack:atkStr,rawAttack:atk,isMultiHit:multi,
-    ability:genAbility(l,isD,isF,isM,isN,isE,isT,h),
-    flavorText:genFlavor(l,isD,isM,isN,isE),
-    emoji:getEmoji(word),
-    exhausted:false,justPlayed:false,
-  };
+    ability:mkAbility(l,isD,isF,isM,isN,isE,isT,h),
+    flavorText:mkFlavor(l,isD,isM,isN,isE),
+    emoji:getEmoji(word),exhausted:false,justPlayed:false};
 }
 
-function genAbility(w,d,f,m,n,e,t,h){
-  const map={chainsaw:'5% chance to shatter itself on attack.',vampire:'Lifesteal: heals 50% of damage dealt.',ghost:'30% chance to evade attacks.',shield:'Grants adjacent ally +2 defense.',poison:'Poisons target: 1 damage/turn for 3 turns.',heal:'On play: restore 3 HP to your Hero.',bomb:'On death: deals 3 damage to all enemies.',zombie:'Resurrects with 1 HP once.',dragon:'Breath: +2 damage to enemy Hero on attack.',wizard:'Arcane: can attack the turn it is played.',sadness:'Despair Aura: enemy creatures lose 1 ATK.',taxation:'On play: enemy loses 1 Elixir next turn.',time:'Frozen Moment: target creature skips next attack.',robot:'Overclock: +2 ATK but takes 1 self-damage/turn.'};
+function mkAbility(w,d,f,m,n,e,t,h){
+  const map={chainsaw:'5% chance to shatter on attack.',vampire:'Lifesteal: heals 50% of damage dealt.',ghost:'30% chance to evade attacks.',shield:'Taunt: enemy must attack this first.',poison:'Poisons target: 1 dmg/turn for 3 turns.',heal:'On play: restore 3 HP to your Hero.',bomb:'On death: 3 damage to all enemies.',zombie:'Resurrects with 1 HP once.',dragon:'Breath: +2 damage to enemy Hero on attack.',wizard:'Arcane: can attack the turn it is played.',sadness:'Despair: enemy creatures −1 ATK.',taxation:'On play: enemy loses 1 Elixir next turn.',time:'Frozen: target skips next attack.',robot:'Overclock: +2 ATK, takes 1 self-damage/turn.'};
   for(const[k,v]of Object.entries(map))if(w.includes(k))return v;
   if(d&&h%4===0)return`${5+h%16}% critical strike (double damage).`;
   if(d&&h%4===1)return'Cleave: 50% damage to adjacent enemies.';
-  if(f&&h%3===0)return'Taunt: enemy must attack this creature first.';
   if(f&&h%3===1)return'Fortify: gains +1 HP each turn.';
-  if(m&&h%3===0)return'Spellbound: immune to first damage instance.';
-  if(n&&h%3===0)return'Regenerate: recovers 1 HP at end of each turn.';
-  if(e&&h%4===0)return'Empathy: gains +1 ATK when your Hero loses HP.';
-  if(t&&h%3===0)return'Targeting System: ignores Taunt when attacking.';
-  return['First Strike: attacks before the defender.','Stealth: untargetable until it attacks.','Bloodlust: gains +1 ATK on each kill.','Ward: absorbs the first 2 damage.','Rally: adjacent allies +1 ATK on entry.','Vigilance: does not exhaust after attacking.'][h%6];
+  if(m&&h%3===0)return'Ward: immune to first damage instance.';
+  if(n&&h%3===0)return'Regenerate: +1 HP at end of each turn.';
+  if(e&&h%4===0)return'Empathy: +1 ATK when your Hero loses HP.';
+  if(t&&h%3===0)return'Targeting: ignores Taunt when attacking.';
+  return['First Strike: attacks before defender.','Stealth: untargetable until it attacks.','Bloodlust: +1 ATK on each kill.','Rally: adjacent allies +1 ATK on entry.','Vigilance: does not exhaust after attacking.','Soul Siphon: draw a card on kill.'][h%6];
 }
 
-function genFlavor(w,d,m,n,e){
+function mkFlavor(w,d,m,n,e){
   const t=d?[`"${w.toUpperCase()} knows only endings."`,'"Born from violence."','"It does not hesitate."']:
-          m?['"Reality bends at its whisper."','"Between words, magic breathes."','"Impossible is unsolved."']:
+          m?['"Reality bends at its whisper."','"Magic breathes between words."','"Impossible is unsolved."']:
           n?['"The wild asks no permission."','"Ancient as root."','"Nature remembers."']:
-          e?['"Feelings are the oldest currency."','"To name it is to summon it."','"The heart, sharpest of blades."']:
-          ['"Even mundane things hold power."','"Context is everything."','"Stillness is not weakness."'];
-  return t[Math.abs(hashCode(w+'f'))%t.length];
-}
-
-async function generateAllCards(p1Words,p2Words,statusCb){
-  const p1=[],p2=[];
-  for(const w of p1Words){statusCb&&statusCb(w);await sleep(280);p1.push(mockGenerateCard(w));}
-  for(const w of p2Words){statusCb&&statusCb(w);await sleep(280);p2.push(mockGenerateCard(w));}
-  return{p1,p2};
+          e?['"Feelings are the oldest currency."','"To name it is to summon it."','"The heart: sharpest blade."']:
+          ['"Even mundane holds power."','"Context is everything."','"Stillness is not weakness."'];
+  return t[Math.abs(hc(w+'f'))%t.length];
 }
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
-// ═══════════════════════════════════════════════════════════
-// GAME STATE
-// ═══════════════════════════════════════════════════════════
+// ─── NETWORK STATE ───────────────────────────────────────────
+const NET={
+  peer:null, conn:null,
+  isHost:false, myRole:null, roomId:null,
+  myWords:[], oppWords:[],
+  myWordsLocked:false, oppWordsLocked:false,
+};
+
+// ─── GAME STATE ──────────────────────────────────────────────
 const G={
-  turn:1,round:1,maxMana:1,currentMana:1,
+  turn:1, round:1, maxMana:1, currentMana:1,
   p1:{name:'Player 1',emoji:'⚡',hp:20,maxHp:20,deck:[],hand:[],board:[],allCards:[]},
   p2:{name:'Player 2',emoji:'🔮',hp:20,maxHp:20,deck:[],hand:[],board:[],allCards:[]},
-  selectedCard:null,attackMode:false,phase:'lobby',
+  selectedCard:null, attackMode:false, phase:'lobby',
 };
 
 function myPlayer(){return NET.myRole==='p1'?G.p1:G.p2;}
@@ -770,135 +745,145 @@ function oppPlayer(){return NET.myRole==='p1'?G.p2:G.p1;}
 function isMyTurn(){return(NET.myRole==='p1'&&G.turn===1)||(NET.myRole==='p2'&&G.turn===2);}
 
 // ═══════════════════════════════════════════════════════════
-// PEER / NETWORK SETUP
+// NETWORK CORE
 // ═══════════════════════════════════════════════════════════
-function createPeer(id=undefined){
-  return new Promise((resolve,reject)=>{
-    const opts={debug:0};
-    const p=id?new Peer(id,opts):new Peer(opts);
-    p.on('open',pid=>{NET.peer=p;NET.roomId=pid;resolve(pid);});
-    p.on('error',e=>{reject(e);});
-  });
+function send(data){
+  if(NET.conn&&NET.conn.open){
+    try{NET.conn.send(JSON.stringify(data));}
+    catch(e){console.error('Send failed:',e);}
+  }
 }
 
 function setNetStatus(label,type='connecting'){
-  const colors={connecting:'orange',connected:'green',error:'red'};
-  const dotClass=colors[type]||'orange';
+  const col={connecting:'orange',connected:'green',error:'red'};
   document.getElementById('net-status').innerHTML=
-    `<div class="status-badge ${type}"><div class="dot ${dotClass}"></div>${label}</div>`;
+    `<div class="status-badge ${type}"><div class="dot ${col[type]||'orange'}"></div>${label}</div>`;
 }
 
-function send(data){
-  if(NET.conn&&NET.conn.open){NET.conn.send(JSON.stringify(data));}
-}
-
+// Central message handler — no duplicate function definitions
 function onMessage(raw){
-  const msg=JSON.parse(raw);
+  let msg;
+  try{msg=JSON.parse(raw);}catch(e){return;}
+  console.log('MSG received:',msg.type);
+
   switch(msg.type){
-    case 'opponent_joined':
-      // Host receives this when guest connects
-      document.getElementById('waiting-text').textContent='✅ Opponent joined! Starting…';
-      setTimeout(()=>showPregame(),1000);
+
+    // HOST → GUEST: "you're in, go to word screen"
+    case 'go_pregame':
+      showPregame();
       break;
 
-    case 'words_ready':
-      // We received opponent's words
+    // EITHER → OTHER: "I locked my words"
+    case 'words_locked':
       NET.oppWords=msg.words;
-      NET.oppWordsReady=true;
+      NET.oppWordsLocked=true;
       addLog('🤝 Opponent locked in their words!','important');
-      document.getElementById('opponent-status-text').textContent='✅ Opponent is ready!';
-      if(NET.myWordsReady) startGeneration();
+      const osSt=document.getElementById('opponent-status-text');
+      if(osSt)osSt.textContent='✅ Opponent is ready!';
+      // If host AND I also locked → start generating
+      if(NET.isHost&&NET.myWordsLocked){
+        startGeneration();
+      }
       break;
 
+    // HOST → GUEST: full game state snapshot
     case 'game_state':
-      // Full state sync from host
-      applyState(msg.state);
-      renderAll();
+      receiveState(msg.state);
       break;
 
+    // HOST ← GUEST: guest action to process
     case 'action':
-      // Host receives guest actions, processes and re-broadcasts
-      if(NET.isHost) processGuestAction(msg.action);
-      break;
-
-    case 'chat':
-      addLog(`💬 Opp: ${msg.text}`,'special');
+      if(NET.isHost){
+        processAction(msg.action, G.p2); // guest is always p2
+        broadcastState();
+        renderAll();
+      }
       break;
   }
 }
 
-function applyState(state){
-  G.turn=state.turn;G.round=state.round;
-  G.maxMana=state.maxMana;G.currentMana=state.currentMana;
-  G.p1=state.p1;G.p2=state.p2;G.phase=state.phase;
-  document.getElementById('btn-end-turn').disabled=!isMyTurn();
+function receiveState(state){
+  // Guest applies full state sent by host
+  G.turn=state.turn; G.round=state.round;
+  G.maxMana=state.maxMana; G.currentMana=state.currentMana;
+  G.p1=state.p1; G.p2=state.p2; G.phase=state.phase;
+
+  // If this is the first game state, show game screen
+  if(G.phase==='game'&&document.getElementById('game-screen').classList.contains('hidden')){
+    startGameUI();
+  }
+
+  // Update game over if needed
+  if(G.phase==='over') showGameOver();
+
+  renderAll();
 }
 
 function broadcastState(){
-  // Host sends full game state to guest after every action
   send({type:'game_state',state:{
-    turn:G.turn,round:G.round,maxMana:G.maxMana,currentMana:G.currentMana,
-    p1:G.p1,p2:G.p2,phase:G.phase
+    turn:G.turn, round:G.round, maxMana:G.maxMana, currentMana:G.currentMana,
+    p1:G.p1, p2:G.p2, phase:G.phase
   }});
 }
 
-function sendAction(action){
-  if(NET.isHost){
-    // Host processes own actions directly
-    processAction(action);
-  }else{
-    // Guest sends action to host for processing
-    send({type:'action',action});
-  }
-}
-
 // ═══════════════════════════════════════════════════════════
-// LOBBY UI
+// LOBBY
 // ═══════════════════════════════════════════════════════════
 function initLobby(){
   setNetStatus('Not connected','connecting');
 
-  // Auto-join if URL has ?room=xxx
-  const params=new URLSearchParams(location.search);
-  const roomParam=params.get('room');
+  // Auto-join from URL param
+  const roomParam=new URLSearchParams(location.search).get('room');
   if(roomParam){
     document.getElementById('join-code-input').value=roomParam;
-    setTimeout(()=>joinRoom(roomParam),400);
+    setTimeout(()=>joinRoom(roomParam),500);
     return;
   }
 
   document.getElementById('btn-create').addEventListener('click',async()=>{
-    document.getElementById('btn-create').disabled=true;
-    document.getElementById('btn-create').querySelector('span').textContent='Creating room…';
+    const btn=document.getElementById('btn-create');
+    btn.disabled=true;
+    btn.querySelector('span').textContent='Creating room…';
+
     try{
-      const pid=await createPeer();
-      NET.isHost=true;NET.myRole='p1';
-      const url=`${location.origin}${location.pathname}?room=${pid}`;
-      document.getElementById('room-code-text').textContent=pid.substring(0,8).toUpperCase()+'…';
+      // Create peer with random ID
+      NET.peer=await new Promise((res,rej)=>{
+        const p=new Peer({debug:0});
+        p.on('open',id=>{NET.roomId=id;res(p);});
+        p.on('error',rej);
+        setTimeout(()=>rej(new Error('timeout')),10000);
+      });
+
+      NET.isHost=true; NET.myRole='p1';
+      const url=`${location.origin}${location.pathname}?room=${NET.roomId}`;
+      document.getElementById('room-code-text').textContent=NET.roomId.substring(0,8).toUpperCase()+'…';
       document.getElementById('share-link-text').textContent=url;
       document.getElementById('room-display').classList.add('visible');
-
       document.getElementById('btn-copy').onclick=()=>{
-        navigator.clipboard.writeText(url).then(()=>showToast('Link copied!'));
+        navigator.clipboard.writeText(url).then(()=>showToast('✅ Link copied!'));
       };
-
       setNetStatus('Waiting for opponent…','connecting');
 
-      // Listen for incoming connection
+      // Wait for guest to connect
       NET.peer.on('connection',conn=>{
         NET.conn=conn;
         conn.on('open',()=>{
           setNetStatus('Connected!','connected');
           addLog('🔗 Opponent connected!','important');
-          send({type:'opponent_joined'});
-          setTimeout(()=>showPregame(), 300); // Host goes to word screen
+          // Tell guest to show word screen
+          send({type:'go_pregame'});
+          // Host also shows word screen
+          showPregame();
         });
-        conn.on('data',onMessage);
+        conn.on('data', d=>onMessage(d));
         conn.on('close',()=>setNetStatus('Disconnected','error'));
+        conn.on('error',e=>console.error('conn error:',e));
       });
+
     }catch(e){
-      showToast('Error creating room. Try again.');
-      document.getElementById('btn-create').disabled=false;
+      showToast('Error creating room — try again');
+      btn.disabled=false;
+      btn.querySelector('span').textContent='✦ Create Room & Get Link';
     }
   });
 
@@ -912,50 +897,69 @@ function initLobby(){
 async function joinRoom(hostId){
   setNetStatus('Connecting…','connecting');
   try{
-    await createPeer();
-    NET.isHost=false;NET.myRole='p2';
+    NET.peer=await new Promise((res,rej)=>{
+      const p=new Peer({debug:0});
+      p.on('open',()=>res(p));
+      p.on('error',rej);
+      setTimeout(()=>rej(new Error('timeout')),10000);
+    });
+    NET.isHost=false; NET.myRole='p2';
     const conn=NET.peer.connect(hostId,{reliable:true});
     NET.conn=conn;
     conn.on('open',()=>{
       setNetStatus('Connected!','connected');
       addLog('🔗 Connected to room!','important');
+      // Guest waits for 'go_pregame' from host
     });
-    conn.on('data',onMessage);
+    conn.on('data',d=>onMessage(d));
     conn.on('close',()=>setNetStatus('Disconnected','error'));
-    conn.on('error',()=>{setNetStatus('Connection failed','error');showToast('Could not connect. Check the code.');});
+    conn.on('error',()=>{setNetStatus('Failed','error');showToast('Could not connect. Check the code.');});
   }catch(e){
     setNetStatus('Error','error');
-    showToast('Connection error. Try again.');
+    showToast('Connection error. Check the code and try again.');
   }
 }
 
 // ═══════════════════════════════════════════════════════════
-// PREGAME (WORDS)
+// PREGAME — WORD INPUT
 // ═══════════════════════════════════════════════════════════
+let pregameReady=false; // guard against double-init
+
 function showPregame(){
+  if(pregameReady)return; // prevent double-call
+  pregameReady=true;
+
   show('pregame-screen');
-  const role=NET.isHost?'p1':'p2';
   document.getElementById('my-badge').textContent=NET.isHost?'⚔ Player 1 — Your Words':'🔮 Player 2 — Your Words';
   document.getElementById('pregame-role-subtitle').textContent=NET.isHost?'You are Player 1 (Host)':'You are Player 2 (Guest)';
   buildWordGrid('my-words-grid','my');
 
-  document.getElementById('btn-confirm-words').addEventListener('click',()=>{
+  document.getElementById('btn-confirm-words').onclick=()=>{
     const words=getWords('my-words-grid');
-    if(words.length<8){showToast('Enter all 8 words!');return;}
-    NET.myWords=words;NET.myWordsReady=true;
+    if(words.length<8){showToast('Enter all 8 words first!');return;}
+
+    NET.myWords=words;
+    NET.myWordsLocked=true;
+
     document.getElementById('btn-confirm-words').disabled=true;
     document.getElementById('btn-confirm-words').querySelector('span').textContent='✅ Words Locked!';
     addLog('✦ Your words are locked in!','important');
 
     // Send words to opponent
-    send({type:'words_ready',words});
+    send({type:'words_locked', words});
 
-    if(NET.oppWordsReady){
-      if(NET.isHost) startGeneration();
+    if(NET.isHost){
+      // Host: check if guest already sent their words
+      if(NET.oppWordsLocked){
+        startGeneration();
+      }else{
+        document.getElementById('opponent-status-text').textContent='⏳ Waiting for opponent to lock in words…';
+      }
     }else{
-      document.getElementById('opponent-status-text').textContent='⏳ Waiting for opponent to lock in their words…';
+      // Guest: host will start generation when ready, just wait
+      document.getElementById('opponent-status-text').textContent='⏳ Waiting for host to generate cards…';
     }
-  });
+  };
 }
 
 function buildWordGrid(gridId,prefix){
@@ -964,8 +968,8 @@ function buildWordGrid(gridId,prefix){
   const ph=['e.g. chainsaw','wizard','taxation','shadow','dragon','sadness','lightning','fortress'];
   for(let i=0;i<8;i++){
     const inp=document.createElement('input');
-    inp.className='word-input';inp.type='text';inp.maxLength=20;inp.placeholder=ph[i]||`Word ${i+1}`;
-    inp.addEventListener('input',()=>updateCount(prefix));
+    inp.className='word-input';inp.type='text';inp.maxLength=20;inp.placeholder=ph[i];
+    inp.addEventListener('input',()=>updateCount(gridId,prefix));
     grid.appendChild(inp);
   }
 }
@@ -975,10 +979,12 @@ function getWords(gridId){
     .map(i=>i.value.trim()).filter(w=>w.length>0).slice(0,8);
 }
 
-function updateCount(prefix){
-  const inputs=document.querySelectorAll(`#${prefix}-words-grid .word-input`);
-  let c=0;inputs.forEach(i=>{const f=i.value.trim().length>0;i.classList.toggle('filled',f);if(f)c++;});
-  document.getElementById(`${prefix}-count`).textContent=c;
+function updateCount(gridId,prefix){
+  const inputs=document.querySelectorAll(`#${gridId} .word-input`);
+  let c=0;
+  inputs.forEach(i=>{const f=i.value.trim().length>0;i.classList.toggle('filled',f);if(f)c++;});
+  const cnt=document.getElementById(`${prefix}-count`);
+  if(cnt)cnt.textContent=c;
   document.getElementById('btn-confirm-words').disabled=c<8;
 }
 
@@ -986,86 +992,89 @@ function updateCount(prefix){
 // CARD GENERATION — HOST ONLY
 // ═══════════════════════════════════════════════════════════
 async function startGeneration(){
-  // Only host generates cards and distributes
-  if(!NET.isHost)return;
+  if(!NET.isHost)return; // Only host generates
   show('loading-screen');
-  const {p1,p2}=await generateAllCards(
-    NET.myWords, NET.oppWords,
-    w=>{document.getElementById('loading-word').textContent=w.toUpperCase();}
-  );
-  G.p1.allCards=p1;G.p2.allCards=p2;
+
+  const allWords=[...NET.myWords,...NET.oppWords];
+  const p1Cards=[], p2Cards=[];
+
+  for(let i=0;i<NET.myWords.length;i++){
+    document.getElementById('loading-word').textContent=NET.myWords[i].toUpperCase();
+    await sleep(260);
+    p1Cards.push(mkCard(NET.myWords[i]));
+  }
+  for(let i=0;i<NET.oppWords.length;i++){
+    document.getElementById('loading-word').textContent=NET.oppWords[i].toUpperCase();
+    await sleep(260);
+    p2Cards.push(mkCard(NET.oppWords[i]));
+  }
+
+  G.p1.allCards=p1Cards; G.p2.allCards=p2Cards;
   setupDecks();
-  G.phase='game';G.turn=1;G.round=1;G.maxMana=1;G.currentMana=1;
-  startGameUI();
-  broadcastState(); // Send initial state to guest
+  G.phase='game'; G.turn=1; G.round=1; G.maxMana=1; G.currentMana=1;
+
+  startGameUI();        // show board for host
+  broadcastState();     // send state to guest → guest shows board
 }
 
 function setupDecks(){
-  const clone=c=>({...c,exhausted:false,justPlayed:false,hp:c.maxHp});
-  G.p1.deck=shuffle(G.p1.allCards.map(clone));
-  G.p2.deck=shuffle(G.p2.allCards.map(clone));
+  const cl=c=>({...c,exhausted:false,justPlayed:false,hp:c.maxHp,resurrected:false});
+  G.p1.deck=shuffle(G.p1.allCards.map(cl));
+  G.p2.deck=shuffle(G.p2.allCards.map(cl));
   G.p1.hand=G.p1.deck.splice(0,3);
   G.p2.hand=G.p2.deck.splice(0,3);
-  G.p1.board=[];G.p2.board=[];
+  G.p1.board=[]; G.p2.board=[];
 }
 
-function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=0|Math.random()*(i+1);[a[i],a[j]]=[a[j],a[i]];}return a;}
 
 // ═══════════════════════════════════════════════════════════
-// GAME START
+// GAME BOARD INIT
 // ═══════════════════════════════════════════════════════════
 function startGameUI(){
   show('game-screen');
-  G.phase='game';
   document.getElementById('player-name').textContent=NET.isHost?'YOU (P1)':'YOU (P2)';
   document.getElementById('enemy-name').textContent=NET.isHost?'OPPONENT (P2)':'OPPONENT (P1)';
   document.getElementById('player-portrait').textContent=myPlayer().emoji;
   document.getElementById('enemy-portrait').textContent=oppPlayer().emoji;
-  document.getElementById('btn-end-turn').disabled=!isMyTurn();
   addLog('⚔ The Arcane Duel begins!','important');
-  addLog(`Round 1 — ${G.p1.name}'s turn (Host).`,'important');
+  addLog('Round 1 — Player 1\'s turn.','important');
   renderAll();
 }
 
 // ═══════════════════════════════════════════════════════════
-// ACTIONS — sent through network
+// ACTION SYSTEM
 // ═══════════════════════════════════════════════════════════
-function processGuestAction(action){
-  // HOST ONLY: process actions sent by guest
-  switch(action.type){
-    case 'play_card':
-      doPlayCard(G.p2,action.handIndex);break;
-    case 'attack_card':
-      doAttackCard(action);break;
-    case 'attack_hero':
-      doAttackHero(action);break;
-    case 'end_turn':
-      doEndTurn();break;
+// sendAction: host processes directly, guest sends to host
+function sendAction(action){
+  if(NET.isHost){
+    processAction(action, G.p1); // host is always p1
+    broadcastState();
+    renderAll();
+  }else{
+    send({type:'action', action});
+    // Guest also updates local UI optimistically for selection state
+    renderAll();
   }
-  broadcastState();
 }
 
-function processAction(action){
-  // HOST processing their own actions
-  const ap=G.turn===1?G.p1:G.p2;
+// processAction: applies an action for the given player
+function processAction(action, player){
   switch(action.type){
-    case 'play_card': doPlayCard(ap,action.handIndex);break;
-    case 'attack_card': doAttackCard(action);break;
-    case 'attack_hero': doAttackHero(action);break;
-    case 'end_turn': doEndTurn();break;
+    case 'play_card':   doPlayCard(player, action.handIndex); break;
+    case 'attack_card': doAttackCard(action); break;
+    case 'attack_hero': doAttackHero(action); break;
+    case 'end_turn':    doEndTurn(); break;
   }
-  if(NET.isHost) broadcastState();
   checkGameOver();
-  renderAll();
 }
 
-// ─── PLAY CARD ─────────────────────────────────────────────
+// ─── PLAY CARD ──────────────────────────────────────────────
 function doPlayCard(player,idx){
-  const card=player.hand[idx];if(!card)return;
+  const card=player.hand[idx]; if(!card)return;
   G.currentMana-=card.cost;
   player.hand.splice(idx,1);
-  if(card.ability.toLowerCase().includes('arcane')&&card.ability.toLowerCase().includes('same turn'))card.justPlayed=false;
-  else card.justPlayed=true;
+  card.justPlayed=!(card.ability.toLowerCase().includes('arcane')&&card.ability.toLowerCase().includes('same turn'));
   card.exhausted=false;
   player.board.push(card);
   if(card.ability.toLowerCase().includes('on play: restore')){
@@ -1075,70 +1084,79 @@ function doPlayCard(player,idx){
   addLog(`✦ ${card.name} played (${card.cost} Elixir)`,'important');
 }
 
-// ─── ATTACK CARD ───────────────────────────────────────────
+// ─── ATTACK CARD ────────────────────────────────────────────
 function doAttackCard({atkOwner,atkIdx,defOwner,defIdx}){
   const atO=atkOwner==='p1'?G.p1:G.p2;
   const deO=defOwner==='p1'?G.p1:G.p2;
-  const atC=atO.board[atkIdx];const deC=deO.board[defIdx];
+  const atC=atO.board[atkIdx]; const deC=deO.board[defIdx];
   if(!atC||!deC)return;
 
-  // Ghost evade
-  if(deC.ability.toLowerCase().includes('evade')&&Math.random()<.3){addLog(`👻 ${deC.name} evades!`,'special');atC.exhausted=true;return;}
-  // Chainsaw self-break
-  if(atC.ability.toLowerCase().includes('shatter')&&Math.random()<.05){addLog(`🪚 ${atC.name} shatters!`,'special');atO.board.splice(atO.board.indexOf(atC),1);return;}
+  if(deC.ability.toLowerCase().includes('evade')&&Math.random()<.3){
+    addLog(`👻 ${deC.name} evades!`,'special'); atC.exhausted=true; return;
+  }
+  if(atC.ability.toLowerCase().includes('shatter')&&Math.random()<.05){
+    addLog(`🪚 ${atC.name} shatters!`,'special');
+    atO.board.splice(atO.board.indexOf(atC),1); return;
+  }
 
-  const dmg=calcDmg(atC),ctr=calcDmg(deC);
-  deC.hp-=dmg;atC.hp-=ctr;
+  const dmg=calcDmg(atC), ctr=calcDmg(deC);
+  deC.hp-=dmg; atC.hp-=ctr;
   addLog(`⚔ ${atC.name}(${dmg}) vs ${deC.name}(${ctr})`,'damage');
 
   if(atC.ability.toLowerCase().includes('lifesteal')){
-    const h=Math.floor(dmg*.5);atO.hp=Math.min(atO.maxHp,atO.hp+h);
+    const h=Math.floor(dmg*.5); atO.hp=Math.min(atO.maxHp,atO.hp+h);
     addLog(`🩸 Lifesteal +${h} HP`,'special');
   }
   if(atC.ability.toLowerCase().includes('cleave')){
     deO.board.forEach(c=>{if(c.id!==deC.id)c.hp-=Math.floor(dmg*.5);});
     addLog(`🗡 Cleave!`,'special');
   }
+  if(atC.ability.toLowerCase().includes('bloodlust')&&deC.hp<=0){
+    atC.rawAttack+=1; atC.attack=String(atC.rawAttack);
+    addLog(`🩸 ${atC.name} Bloodlust +1 ATK!`,'special');
+  }
+
   atC.exhausted=true;
   removeDeadCards(atO,deO);
 }
 
-// ─── ATTACK HERO ───────────────────────────────────────────
+// ─── ATTACK HERO ────────────────────────────────────────────
 function doAttackHero({atkOwner,atkIdx,targetOwner}){
   const atO=atkOwner==='p1'?G.p1:G.p2;
   const tgO=targetOwner==='p1'?G.p1:G.p2;
-  const atC=atO.board[atkIdx];if(!atC)return;
+  const atC=atO.board[atkIdx]; if(!atC)return;
   const dmg=calcDmg(atC);
-  tgO.hp-=dmg;atC.exhausted=true;
+  tgO.hp-=dmg; atC.exhausted=true;
   addLog(`⚔ ${atC.name} attacks Hero for ${dmg}!`,'damage');
-  if(atC.ability.toLowerCase().includes('breath')){tgO.hp-=2;addLog(`🐉 +2 Breath damage!`,'special');}
+  if(atC.ability.toLowerCase().includes('breath')){tgO.hp-=2;addLog(`🐉 +2 Breath!`,'special');}
 }
 
-// ─── END TURN ─────────────────────────────────────────────
+// ─── END TURN ───────────────────────────────────────────────
 function doEndTurn(){
-  const prev=G.turn;
   G.turn=G.turn===1?2:1;
   if(G.turn===1)G.round++;
-  G.maxMana=Math.min(10,G.round);G.currentMana=G.maxMana;
+  G.maxMana=Math.min(10,G.round); G.currentMana=G.maxMana;
   const ap=G.turn===1?G.p1:G.p2;
   ap.board.forEach(c=>{c.exhausted=false;c.justPlayed=false;});
   drawCard(ap);
   applyTurnEffects(ap);
-  addLog(`─ Round ${G.round} — ${G.turn===1?G.p1.name:G.p2.name}'s turn. Elixir:${G.maxMana}`,'important');
-  checkGameOver();
+  addLog(`─ Round ${G.round} — ${G.turn===1?'Player 1':'Player 2'}'s turn. Elixir:${G.maxMana}`,'important');
 }
 
-function drawCard(player){
-  if(!player.deck.length){player.hp-=1;addLog(`${player.name} takes fatigue!`,'damage');return;}
-  if(player.hand.length>=8){player.deck.shift();addLog(`${player.name} hand full — burned!`,'damage');return;}
-  const c=player.deck.shift();c.justPlayed=false;c.exhausted=false;player.hand.push(c);
+function drawCard(pl){
+  if(!pl.deck.length){pl.hp-=1;addLog(`${pl.name} takes fatigue!`,'damage');return;}
+  if(pl.hand.length>=8){pl.deck.shift();addLog('Hand full — card burned!','damage');return;}
+  const c=pl.deck.shift(); c.justPlayed=false; c.exhausted=false; pl.hand.push(c);
 }
 
-function applyTurnEffects(player){
-  player.board.forEach(c=>{
+function applyTurnEffects(pl){
+  pl.board.forEach(c=>{
     if(c.ability.toLowerCase().includes('fortify')){c.hp=Math.min(c.maxHp+2,c.hp+1);addLog(`✦ ${c.name} Fortify +1 HP`,'special');}
-    if(c.ability.toLowerCase().includes('regenerate')){c.hp=Math.min(c.maxHp,c.hp+1);addLog(`✦ ${c.name} Regenerate +1 HP`,'special');}
-    if(c.ability.toLowerCase().includes('overclock')){c.hp-=1;if(c.hp<=0){player.board.splice(player.board.indexOf(c),1);addLog(`⚡ ${c.name} burnt out!`,'damage');}}
+    if(c.ability.toLowerCase().includes('regenerate')){c.hp=Math.min(c.maxHp,c.hp+1);addLog(`✦ ${c.name} Regen +1 HP`,'special');}
+    if(c.ability.toLowerCase().includes('overclock')){
+      c.hp-=1;
+      if(c.hp<=0){pl.board.splice(pl.board.indexOf(c),1);addLog(`⚡ ${c.name} burnt out!`,'damage');}
+    }
   });
 }
 
@@ -1152,12 +1170,15 @@ function calcDmg(c){
 
 function removeDeadCards(a,b){
   [a,b].forEach(owner=>{
-    owner.board.filter(c=>c.hp<=0).forEach(c=>{
+    const dead=owner.board.filter(c=>c.hp<=0);
+    dead.forEach(c=>{
       if(c.ability.toLowerCase().includes('on death')&&c.ability.toLowerCase().includes('damage')){
-        const m=c.ability.match(/deals (\d+) damage/i);
-        if(m){const sp=parseInt(m[1]);const en=owner===G.p1?G.p2:G.p1;en.board.forEach(ec=>ec.hp-=sp);en.hp-=sp;addLog(`💣 ${c.name} explodes for ${sp}!`,'damage');}
+        const m=c.ability.match(/(\d+) damage/i);
+        if(m){const sp=parseInt(m[1]);const en=owner===G.p1?G.p2:G.p1;en.board.forEach(ec=>ec.hp-=sp);en.hp-=sp;addLog(`💣 ${c.name} explodes ${sp} dmg!`,'damage');}
       }
-      if(c.ability.toLowerCase().includes('resurrects')&&!c.resurrected){c.hp=1;c.resurrected=true;addLog(`🧟 ${c.name} rises!`,'special');return;}
+      if(c.ability.toLowerCase().includes('resurrects')&&!c.resurrected){
+        c.hp=1;c.resurrected=true;addLog(`🧟 ${c.name} rises!`,'special');return;
+      }
       addLog(`💀 ${c.name} destroyed!`,'');
     });
     owner.board=owner.board.filter(c=>c.hp>0);
@@ -1165,53 +1186,63 @@ function removeDeadCards(a,b){
 }
 
 // ═══════════════════════════════════════════════════════════
-// UI ACTIONS (called on click)
+// UI INTERACTIONS
 // ═══════════════════════════════════════════════════════════
 function selectCard(source,index,ownerKey){
   if(G.phase!=='game')return;
-  const me=NET.myRole;
-  const isMyCard=ownerKey===me;
+  const isMyCard=(ownerKey===NET.myRole);
 
-  if(!isMyTurn()){
-    // Can only click enemy cards in attack mode
-    if(G.attackMode&&!isMyCard&&source==='board'){
-      const atkC=G.selectedCard;
-      sendAction({type:'attack_card',atkOwner:me,atkIdx:atkC.index,defOwner:ownerKey,defIdx:index});
-      spawnDamageFloat(3,'enemy');
+  // ── CLICKING ENEMY CARD ──────────────────────────────────
+  if(!isMyCard){
+    if(G.attackMode&&G.selectedCard&&isMyTurn()){
+      // Check Taunt
+      const enemyBoard=oppPlayer().board;
+      const hasTaunt=enemyBoard.some(c=>c.ability.toLowerCase().includes('taunt'));
+      if(hasTaunt&&!oppPlayer().board[index]?.ability.toLowerCase().includes('taunt')){
+        showToast('A creature has Taunt — attack it first!'); return;
+      }
+      sendAction({type:'attack_card',atkOwner:NET.myRole,atkIdx:G.selectedCard.index,defOwner:ownerKey,defIdx:index});
+      spawnDamageFloat(G.selectedCard.card.rawAttack,'enemy');
       clearSelection();
-    }else{showToast("It's not your turn!");}
+    }else{
+      showToast(isMyTurn()?'Select your creature first!':("It's not your turn!"));
+    }
     return;
   }
 
-  const player=ownerKey==='p1'?G.p1:G.p2;
-  const card=source==='hand'?player.hand[index]:player.board[index];
-  if(!card)return;
-
+  // ── CLICKING MY HAND CARD ────────────────────────────────
   if(source==='hand'){
-    if(G.currentMana<card.cost){showToast('Not enough Elixir!');return;}
+    if(!isMyTurn()){showToast("It's not your turn!");return;}
+    const card=myPlayer().hand[index];
+    if(!card)return;
+    if(G.currentMana<card.cost){showToast(`Need ${card.cost} Elixir!`);return;}
     sendAction({type:'play_card',handIndex:index});
-    if(NET.isHost){renderAll();}
     return;
   }
 
-  if(source==='board'&&isMyCard){
-    if(card.exhausted){showToast('Already acted!');return;}
+  // ── CLICKING MY BOARD CARD ───────────────────────────────
+  if(source==='board'){
+    if(!isMyTurn()){showToast("It's not your turn!");return;}
+    const card=myPlayer().board[index];
+    if(!card)return;
+    if(card.exhausted){showToast('Already acted this turn!');return;}
     if(card.justPlayed&&!card.ability.toLowerCase().includes('arcane')){showToast('Needs a turn to prepare!');return;}
-    if(G.selectedCard&&G.selectedCard.card===card){clearSelection();return;}
+    if(G.selectedCard&&G.selectedCard.index===index){clearSelection();return;}
     G.selectedCard={source,index,card,owner:ownerKey};
     G.attackMode=true;
-    showToast('Choose a target to attack →');
-    if(!NET.isHost)renderAll(); // Guest updates local selection highlight
-    else renderAll();
+    showToast('Now click an enemy creature or hero to attack →');
+    renderAll();
   }
 }
 
 function selectHeroTarget(targetOwner){
-  if(!G.attackMode||!G.selectedCard)return;
+  if(!G.attackMode||!G.selectedCard||!isMyTurn())return;
   const isEnemy=(NET.myRole==='p1'&&targetOwner==='p2')||(NET.myRole==='p2'&&targetOwner==='p1');
   if(!isEnemy){showToast("You can't attack yourself!");return;}
-  const enemyBoard=(NET.myRole==='p1'?G.p2:G.p1).board;
-  if(enemyBoard.some(c=>c.ability.toLowerCase().includes('taunt'))){showToast('Attack the Taunt creature first!');return;}
+  const enemyBoard=oppPlayer().board;
+  if(enemyBoard.some(c=>c.ability.toLowerCase().includes('taunt'))){
+    showToast('A creature has Taunt — attack it first!'); return;
+  }
   sendAction({type:'attack_hero',atkOwner:NET.myRole,atkIdx:G.selectedCard.index,targetOwner});
   spawnDamageFloat(G.selectedCard.card.rawAttack,'enemy');
   clearSelection();
@@ -1231,34 +1262,34 @@ function clearSelection(){G.selectedCard=null;G.attackMode=false;renderAll();}
 // ═══════════════════════════════════════════════════════════
 function checkGameOver(){
   if(G.phase!=='game')return;
-  if(G.p1.hp<=0||G.p2.hp<=0){
-    G.phase='over';
-    const winner=G.p1.hp>0?G.p1:G.p2;
-    const isIWon=(NET.myRole==='p1'&&G.p1.hp>0)||(NET.myRole==='p2'&&G.p2.hp>0);
-    document.getElementById('gameover-title').textContent=isIWon?'🏆 Victory!':'💀 Defeat';
-    document.getElementById('gameover-subtitle').textContent=isIWon?'You prevailed in the Arcane Duel!':'Your opponent wins this time.';
-    document.getElementById('gameover-overlay').classList.remove('hidden');
-    if(NET.isHost)broadcastState();
-  }
+  if(G.p1.hp>0&&G.p2.hp>0)return;
+  G.phase='over';
+  showGameOver();
+}
+
+function showGameOver(){
+  const isIWon=(NET.myRole==='p1'&&G.p1.hp>0)||(NET.myRole==='p2'&&G.p2.hp>0);
+  document.getElementById('gameover-title').textContent=isIWon?'🏆 Victory!':'💀 Defeat';
+  document.getElementById('gameover-subtitle').textContent=isIWon?'You prevailed in the Arcane Duel!':'Your opponent wins this time.';
+  document.getElementById('gameover-overlay').classList.remove('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════════════════
 function renderAll(){
-  if(G.phase==='lobby'||G.phase==='pregame')return;
-  renderHP();renderMana();renderBoards();renderHands();
-  document.getElementById('turn-display').textContent=isMyTurn()?'YOUR TURN':'OPPONENT\'S TURN';
-  document.getElementById('turn-display').className='turn-player'+(isMyTurn()?' my-turn':'');
-  document.getElementById('btn-end-turn').disabled=!isMyTurn()||(G.phase!=='game');
+  if(!['game','over'].includes(G.phase))return;
+  renderHP(); renderMana(); renderBoards(); renderHands();
+  const td=document.getElementById('turn-display');
+  td.textContent=isMyTurn()?'YOUR TURN':"OPPONENT'S TURN";
+  td.className='turn-player'+(isMyTurn()?' my-turn':'');
+  document.getElementById('btn-end-turn').disabled=!isMyTurn()||G.phase!=='game';
 }
 
 function renderHP(){
   const me=myPlayer(),op=oppPlayer();
-  const pct1=Math.max(0,me.hp/me.maxHp*100);
-  const pct2=Math.max(0,op.hp/op.maxHp*100);
-  document.getElementById('player-hp-fill').style.width=pct1+'%';
-  document.getElementById('enemy-hp-fill').style.width=pct2+'%';
+  document.getElementById('player-hp-fill').style.width=Math.max(0,me.hp/me.maxHp*100)+'%';
+  document.getElementById('enemy-hp-fill').style.width=Math.max(0,op.hp/op.maxHp*100)+'%';
   document.getElementById('player-hp-text').textContent=`${Math.max(0,me.hp)}/${me.maxHp}`;
   document.getElementById('enemy-hp-text').textContent=`${Math.max(0,op.hp)}/${op.maxHp}`;
   document.getElementById('player-deck-count').textContent=me.deck.length;
@@ -1266,18 +1297,20 @@ function renderHP(){
 }
 
 function renderMana(){
-  const pips=document.getElementById('mana-pips');pips.innerHTML='';
+  const pips=document.getElementById('mana-pips'); pips.innerHTML='';
   for(let i=0;i<G.maxMana;i++){
     const p=document.createElement('div');
-    p.className='mana-pip'+(i<G.currentMana?' filled':'');pips.appendChild(p);
+    p.className='mana-pip'+(i<G.currentMana?' filled':'');
+    pips.appendChild(p);
   }
   document.getElementById('mana-number').textContent=`${G.currentMana}/${G.maxMana}`;
 }
 
 function renderBoards(){
   const me=myPlayer(),op=oppPlayer();
-  const meKey=NET.myRole,opKey=NET.myRole==='p1'?'p2':'p1';
+  const meKey=NET.myRole, opKey=NET.myRole==='p1'?'p2':'p1';
 
+  // My battlefield
   const pb=document.getElementById('player-battlefield');
   pb.innerHTML='';
   if(!me.board.length){pb.innerHTML='<span class="battlefield-empty">— Play a card —</span>';}
@@ -1285,46 +1318,44 @@ function renderBoards(){
     const el=buildCard(card,'board',i,meKey,false);
     const canAct=isMyTurn()&&!card.exhausted&&(!card.justPlayed||card.ability.toLowerCase().includes('arcane'));
     el.classList.toggle('can-attack',canAct&&!G.attackMode);
-    if(G.selectedCard&&G.selectedCard.card===card)el.classList.add('selected');
+    if(G.selectedCard&&G.selectedCard.index===i&&G.selectedCard.owner===meKey)el.classList.add('selected');
     pb.appendChild(el);
   });
 
+  // Enemy battlefield
   const eb=document.getElementById('enemy-battlefield');
   eb.innerHTML='';
   if(!op.board.length){eb.innerHTML='<span class="battlefield-empty">— No creatures —</span>';}
   else op.board.forEach((card,i)=>{
     const el=buildCard(card,'board',i,opKey,true);
-    if(G.attackMode)el.classList.add('target-glow');
+    if(G.attackMode&&isMyTurn())el.classList.add('target-glow');
     eb.appendChild(el);
   });
 
-  // Hero portraits as targets
+  // Hero portraits as attack targets
   const ep=document.getElementById('enemy-portrait');
   const pp=document.getElementById('player-portrait');
   if(G.attackMode&&isMyTurn()){
-    ep.classList.add('targetable');
-    ep.onclick=()=>selectHeroTarget(opKey);
+    ep.classList.add('targetable'); ep.onclick=()=>selectHeroTarget(opKey);
     pp.onclick=()=>selectHeroTarget(meKey);
   }else{
-    ep.classList.remove('targetable');
-    ep.onclick=null;pp.onclick=null;
+    ep.classList.remove('targetable'); ep.onclick=null; pp.onclick=null;
   }
 }
 
 function renderHands(){
-  const ph=document.getElementById('player-hand');ph.innerHTML='';
-  const me=myPlayer(),meKey=NET.myRole;
-  me.hand.forEach((card,i)=>{
-    const el=buildCard(card,'hand',i,meKey,false);
+  // My hand
+  const ph=document.getElementById('player-hand'); ph.innerHTML='';
+  myPlayer().hand.forEach((card,i)=>{
+    const el=buildCard(card,'hand',i,NET.myRole,false);
     const canPlay=isMyTurn()&&G.currentMana>=card.cost&&G.phase==='game';
     el.classList.toggle('unplayable',!canPlay);
     ph.appendChild(el);
   });
-
-  const eh=document.getElementById('enemy-hand-display');eh.innerHTML='';
-  const op=oppPlayer();
-  for(let i=0;i<Math.min(op.hand.length,6);i++){
-    const b=document.createElement('div');b.className='card-back';b.textContent='🂠';eh.appendChild(b);
+  // Enemy hand (face down)
+  const eh=document.getElementById('enemy-hand-display'); eh.innerHTML='';
+  for(let i=0;i<Math.min(oppPlayer().hand.length,6);i++){
+    const b=document.createElement('div'); b.className='card-back'; b.textContent='🂠'; eh.appendChild(b);
   }
 }
 
@@ -1348,7 +1379,7 @@ function buildCard(card,source,index,owner,isEnemy){
 }
 
 // ═══════════════════════════════════════════════════════════
-// UTILS
+// UTILITIES
 // ═══════════════════════════════════════════════════════════
 function show(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
@@ -1357,47 +1388,35 @@ function show(id){
 
 function addLog(msg,type=''){
   const log=document.getElementById('game-log');
-  const e=document.createElement('div');e.className=`log-entry ${type}`;e.textContent=msg;
-  log.appendChild(e);log.scrollTop=log.scrollHeight;
+  const e=document.createElement('div');
+  e.className=`log-entry ${type}`; e.textContent=msg;
+  log.appendChild(e); log.scrollTop=log.scrollHeight;
   while(log.children.length>40)log.removeChild(log.firstChild);
 }
 
 function showToast(msg){
-  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
-  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2500);
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2500);
 }
 
 function spawnDamageFloat(amount,side){
-  const el=document.createElement('div');el.className='damage-float';el.textContent=`-${amount}`;
+  const el=document.createElement('div');
+  el.className='damage-float'; el.textContent=`-${amount}`;
   el.style.left=(side==='enemy'?window.innerWidth*.65:window.innerWidth*.35)+'px';
   el.style.top=(side==='enemy'?window.innerHeight*.25:window.innerHeight*.75)+'px';
-  document.body.appendChild(el);setTimeout(()=>el.remove(),1000);
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),1000);
 }
 
-// Guest receives state and needs to start game UI
-function handleFirstState(){
-  if(G.phase==='game'&&document.getElementById('game-screen').classList.contains('hidden')){
-    startGameUI();
-  }
-}
-
-// Patch applyState to trigger UI start for guest
-const _origApply=applyState;
-function applyState(state){
-  _origApply(state);
-  if(!NET.isHost)handleFirstState();
-  checkGameOver();
-}
-
-// Keyboard shortcuts
 document.addEventListener('keydown',e=>{
   if((e.key==='e'||e.key==='E')&&G.phase==='game')endTurn();
   if(e.key==='Escape')clearSelection();
 });
 
-// ─── BOOT ─────────────────────────────────────────────────
+// ─── BOOT ──────────────────────────────────────────────────
 initLobby();
-console.log('%cARCANE DUEL ONLINE — P2P via PeerJS WebRTC','color:#c9a227;font-size:14px;font-weight:bold;');
+console.log('%cARCANE DUEL ONLINE — Fixed & Clean Build','color:#c9a227;font-size:14px;font-weight:bold;');
 </script>
 </body>
 </html>
