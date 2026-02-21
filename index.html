@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARCANE DUEL — Online</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-deep:    #080b12;
+  --bg-mid:     #0d1220;
+  --bg-surface: #111827;
+  --bg-card:    #141c2e;
+  --border-gold:#c9a227;
+  --border-dim: #2a3048;
+  --gold-bright:#f0c040;
+  --gold-mid:   #c9a227;
+  --gold-dark:  #7a5f10;
+  --mana-blue:  #4a90d9;
+  --mana-glow:  rgba(74,144,217,0.5);
+  --hp-red:     #e05252;
+  --hp-green:   #4caf82;
+  --text-main:  #e8dfc8;
+  --text-dim:   #8a7f6a;
+  --text-bright:#fff8e7;
+  --glow-gold:  0 0 20px rgba(201,162,39,0.4);
+  --glow-select:0 0 20px rgba(74,144,217,0.8);
+  --glow-attack:0 0 25px rgba(255,80,80,0.7);
+  --font-display:'Cinzel Decorative',serif;
+  --font-title: 'Cinzel',serif;
+  --font-body:  'Crimson Pro',serif;
+  --radius:     10px;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+
+body {
+  background: var(--bg-deep);
+  color: var(--text-main);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+body::before {
+  content:'';position:fixed;inset:0;
+  background-image:
+    radial-gradient(1px 1px at 15% 25%,rgba(255,255,255,.12) 0%,transparent 100%),
+    radial-gradient(1px 1px at 75% 12%,rgba(255,255,255,.10) 0%,transparent 100%),
+    radial-gradient(1.5px 1.5px at 45% 65%,rgba(240,192,64,.12) 0%,transparent 100%),
+    radial-gradient(1px 1px at 90% 80%,rgba(255,255,255,.08) 0%,transparent 100%),
+    radial-gradient(1px 1px at 30% 90%,rgba(255,255,255,.06) 0%,transparent 100%);
+  pointer-events:none;z-index:0;
+}
+
+body::after {
+  content:'';position:fixed;inset:0;
+  background:radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,.65) 100%);
+  pointer-events:none;z-index:0;
+}
+
+/* ─── SCREENS ─────────────────────────────── */
+.screen{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;}
+.screen.hidden{display:none!important;}
+
+/* ─── LOBBY ───────────────────────────────── */
+#lobby-screen {
+  align-items:center;justify-content:center;
+  background:linear-gradient(160deg,#080b12 0%,#0d1525 50%,#080b12 100%);
+}
+
+.lobby-box {
+  width:520px;max-width:95vw;
+  display:flex;flex-direction:column;align-items:center;gap:24px;
+  animation:fadeInUp .7s ease both;
+}
+
+.game-logo h1 {
+  font-family:var(--font-display);
+  font-size:clamp(1.8rem,5vw,2.8rem);
+  color:var(--gold-bright);
+  text-shadow:0 0 40px rgba(240,192,64,.5),0 0 80px rgba(240,192,64,.2);
+  letter-spacing:4px;text-align:center;
+}
+
+.game-logo p {
+  font-family:var(--font-title);
+  font-size:.7rem;letter-spacing:8px;
+  color:var(--text-dim);margin-top:8px;text-align:center;
+  text-transform:uppercase;
+}
+
+.divider {
+  width:100%;height:1px;
+  background:linear-gradient(90deg,transparent,var(--border-gold),transparent);
+  opacity:.5;
+}
+
+.lobby-card {
+  width:100%;
+  background:linear-gradient(135deg,var(--bg-surface),var(--bg-card));
+  border:1px solid var(--border-dim);border-radius:16px;padding:28px;
+  position:relative;overflow:hidden;
+}
+
+.lobby-card::before {
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--border-gold),transparent);
+}
+
+.lobby-card h2 {
+  font-family:var(--font-title);font-size:1.2rem;
+  color:var(--text-bright);margin-bottom:6px;
+}
+
+.lobby-card p {
+  font-size:.9rem;color:var(--text-dim);font-style:italic;margin-bottom:20px;
+}
+
+.btn-row {display:flex;gap:12px;flex-direction:column;}
+
+.btn-primary {
+  font-family:var(--font-title);font-size:.85rem;letter-spacing:3px;
+  text-transform:uppercase;padding:14px 30px;
+  background:linear-gradient(135deg,var(--gold-dark),var(--gold-mid));
+  color:#060a10;border:none;border-radius:8px;cursor:pointer;
+  position:relative;overflow:hidden;
+  transition:transform .2s,box-shadow .2s;width:100%;
+}
+
+.btn-primary::before {
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,var(--gold-mid),var(--gold-bright));
+  opacity:0;transition:opacity .2s;
+}
+
+.btn-primary:hover{transform:translateY(-2px);box-shadow:var(--glow-gold);}
+.btn-primary:hover::before{opacity:1;}
+.btn-primary span{position:relative;z-index:1;}
+.btn-primary:disabled{opacity:.35;cursor:not-allowed;transform:none;}
+
+.btn-secondary {
+  font-family:var(--font-title);font-size:.8rem;letter-spacing:2px;
+  text-transform:uppercase;padding:12px 24px;
+  background:rgba(74,144,217,.15);color:var(--mana-blue);
+  border:1px solid rgba(74,144,217,.4);border-radius:8px;cursor:pointer;
+  transition:all .2s;width:100%;
+}
+
+.btn-secondary:hover{background:rgba(74,144,217,.25);box-shadow:0 0 15px var(--mana-glow);}
+
+/* ─── JOIN INPUT ──────────────────────────── */
+.join-row {display:flex;gap:8px;margin-top:10px;}
+
+.code-input {
+  flex:1;background:rgba(0,0,0,.4);
+  border:1px solid var(--border-dim);border-radius:8px;
+  padding:12px 16px;color:var(--text-bright);
+  font-family:var(--font-title);font-size:1rem;letter-spacing:4px;
+  text-align:center;text-transform:uppercase;outline:none;
+  transition:border-color .2s,box-shadow .2s;
+}
+
+.code-input::placeholder{color:var(--text-dim);letter-spacing:2px;font-style:italic;font-size:.8rem;}
+.code-input:focus{border-color:var(--mana-blue);box-shadow:0 0 12px var(--mana-glow);}
+
+.btn-join {
+  font-family:var(--font-title);font-size:.75rem;letter-spacing:2px;
+  padding:12px 20px;background:rgba(74,144,217,.2);color:var(--mana-blue);
+  border:1px solid rgba(74,144,217,.5);border-radius:8px;
+  cursor:pointer;white-space:nowrap;transition:all .2s;
+}
+
+.btn-join:hover{background:rgba(74,144,217,.35);}
+
+/* ─── ROOM CODE DISPLAY ───────────────────── */
+.room-display {
+  background:rgba(0,0,0,.4);border:1px solid var(--border-gold);
+  border-radius:12px;padding:20px;text-align:center;
+  margin-top:10px;display:none;
+}
+
+.room-display.visible{display:block;}
+
+.room-label {
+  font-family:var(--font-title);font-size:.65rem;
+  letter-spacing:4px;color:var(--text-dim);text-transform:uppercase;margin-bottom:10px;
+}
+
+.room-code {
+  font-family:var(--font-display);font-size:1.8rem;
+  color:var(--gold-bright);letter-spacing:6px;
+  text-shadow:0 0 20px rgba(240,192,64,.4);margin-bottom:14px;
+}
+
+.share-link-box {
+  display:flex;gap:8px;align-items:center;
+}
+
+.share-link-text {
+  flex:1;background:rgba(0,0,0,.3);border:1px solid var(--border-dim);
+  border-radius:6px;padding:8px 12px;
+  font-family:var(--font-body);font-size:.8rem;color:var(--text-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+.btn-copy {
+  font-family:var(--font-title);font-size:.65rem;letter-spacing:2px;
+  padding:8px 14px;background:rgba(201,162,39,.15);color:var(--gold-mid);
+  border:1px solid rgba(201,162,39,.3);border-radius:6px;cursor:pointer;
+  white-space:nowrap;transition:all .2s;flex-shrink:0;
+}
+
+.btn-copy:hover{background:rgba(201,162,39,.25);}
+
+.waiting-pulse {
+  font-family:var(--font-title);font-size:.75rem;letter-spacing:3px;
+  color:var(--text-dim);margin-top:14px;text-align:center;
+  animation:pulse 2s infinite;
+}
+
+/* ─── STATUS BAR ──────────────────────────── */
+.status-badge {
+  display:inline-flex;align-items:center;gap:8px;
+  padding:6px 14px;border-radius:20px;
+  font-family:var(--font-title);font-size:.65rem;letter-spacing:2px;
+  text-transform:uppercase;
+}
+
+.status-badge.connecting{background:rgba(255,165,0,.1);color:#ffaa44;border:1px solid rgba(255,165,0,.3);}
+.status-badge.connected {background:rgba(76,175,130,.1);color:var(--hp-green);border:1px solid rgba(76,175,130,.3);}
+.status-badge.error     {background:rgba(224,82,82,.1);color:var(--hp-red);border:1px solid rgba(224,82,82,.3);}
+
+.dot {width:7px;height:7px;border-radius:50%;animation:pulse 1.5s infinite;}
+.dot.orange{background:#ffaa44;}
+.dot.green {background:var(--hp-green);}
+.dot.red   {background:var(--hp-red);}
+
+/* ─── PREGAME (WORDS) ─────────────────────── */
+#pregame-screen {
+  background:linear-gradient(160deg,#080b12 0%,#0d1525 50%,#080b12 100%);
+  align-items:center;justify-content:flex-start;
+  overflow-y:auto;padding:24px 16px 40px;
+}
+
+.pregame-container {
+  width:580px;max-width:95vw;
+  display:flex;flex-direction:column;align-items:center;gap:20px;
+}
+
+.player-input-card {
+  width:100%;
+  background:linear-gradient(135deg,var(--bg-surface),var(--bg-card));
+  border:1px solid var(--border-dim);border-radius:16px;padding:24px;
+  position:relative;overflow:hidden;
+}
+
+.player-input-card::before {
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--border-gold),transparent);
+}
+
+.player-badge {
+  font-family:var(--font-title);font-size:.65rem;letter-spacing:4px;
+  text-transform:uppercase;padding:4px 12px;border-radius:20px;
+  display:inline-block;margin-bottom:12px;
+}
+
+.p1-badge{background:rgba(74,144,217,.2);color:var(--mana-blue);border:1px solid rgba(74,144,217,.4);}
+.p2-badge{background:rgba(224,82,82,.2); color:var(--hp-red);  border:1px solid rgba(224,82,82,.4);}
+
+.player-input-card h2{font-family:var(--font-title);font-size:1.2rem;color:var(--text-bright);margin-bottom:4px;}
+.player-input-card .hint{font-size:.88rem;color:var(--text-dim);font-style:italic;margin-bottom:16px;}
+
+.words-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;}
+
+.word-input {
+  background:rgba(0,0,0,.3);border:1px solid var(--border-dim);border-radius:8px;
+  padding:9px 10px;color:var(--text-bright);
+  font-family:var(--font-title);font-size:.8rem;text-align:center;outline:none;
+  transition:border-color .2s,box-shadow .2s;width:100%;
+}
+
+.word-input::placeholder{color:var(--text-dim);font-style:italic;font-size:.72rem;}
+.word-input:focus{border-color:var(--border-gold);box-shadow:0 0 10px rgba(201,162,39,.2);}
+.word-input.filled{border-color:rgba(76,175,130,.5);color:var(--hp-green);}
+
+.word-counter {
+  font-family:var(--font-title);font-size:.72rem;color:var(--text-dim);
+  letter-spacing:2px;text-align:right;
+}
+
+.word-counter span{color:var(--gold-bright);font-weight:700;}
+
+.opponent-waiting {
+  background:rgba(0,0,0,.3);border:1px solid var(--border-dim);
+  border-radius:12px;padding:18px;text-align:center;
+}
+
+.opponent-waiting p{font-family:var(--font-title);font-size:.75rem;letter-spacing:3px;color:var(--text-dim);animation:pulse 2s infinite;}
+
+/* ─── LOADING ─────────────────────────────── */
+#loading-screen {
+  background:var(--bg-deep);
+  align-items:center;justify-content:center;flex-direction:column;gap:28px;
+}
+
+.loading-title{font-family:var(--font-display);font-size:1.8rem;color:var(--gold-bright);text-shadow:0 0 30px rgba(240,192,64,.5);animation:pulse 2s infinite;text-align:center;}
+
+.sigil-ring {
+  width:110px;height:110px;border:2px solid var(--border-gold);
+  border-top-color:transparent;border-radius:50%;animation:spin 1.5s linear infinite;
+  position:relative;flex-shrink:0;
+}
+
+.sigil-ring::before {
+  content:'⬡';position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;font-size:2.2rem;color:var(--gold-mid);
+  animation:spin 1.5s linear infinite reverse;
+}
+
+.loading-status{font-family:var(--font-title);font-size:.75rem;letter-spacing:4px;color:var(--text-dim);text-align:center;line-height:1.8;}
+.loading-status em{color:var(--gold-mid);font-style:normal;}
+
+/* ─── GAME BOARD ──────────────────────────── */
+#game-screen {
+  background:radial-gradient(ellipse at 50% 50%,#0d1525 0%,#080b12 100%);
+  flex-direction:column;height:100vh;overflow:hidden;
+}
+
+.game-board {
+  display:grid;grid-template-rows:1fr auto 1fr;
+  height:100%;position:relative;z-index:1;padding:6px 10px;gap:5px;
+}
+
+/* Zones */
+.enemy-zone {
+  display:grid;grid-template-rows:auto 1fr auto;gap:5px;
+  background:rgba(200,60,60,.05);border-radius:12px;
+  border:1px solid rgba(200,60,60,.1);padding:7px 9px;overflow:hidden;
+}
+
+.player-zone {
+  display:grid;grid-template-rows:auto 1fr auto;gap:5px;
+  background:rgba(60,120,200,.05);border-radius:12px;
+  border:1px solid rgba(60,120,200,.1);padding:7px 9px;overflow:hidden;
+}
+
+/* Zone header */
+.zone-header{display:flex;align-items:center;gap:10px;}
+
+.hero-portrait {
+  width:50px;height:50px;border-radius:50%;border:2px solid var(--border-gold);
+  display:flex;align-items:center;justify-content:center;font-size:1.5rem;
+  background:linear-gradient(135deg,#1a2035,#0d1525);box-shadow:var(--glow-gold);flex-shrink:0;
+  cursor:default;transition:box-shadow .2s;
+}
+
+.hero-portrait.targetable{cursor:crosshair;animation:targetPulse .8s infinite alternate;}
+
+.hero-info{flex:1;}
+.hero-name{font-family:var(--font-title);font-size:.8rem;color:var(--text-bright);letter-spacing:2px;}
+
+.hero-hp-bar-wrap{display:flex;align-items:center;gap:7px;margin-top:3px;}
+.hero-hp-icon{font-size:.85rem;}
+
+.hero-hp-bar{flex:1;height:9px;background:rgba(255,255,255,.05);border-radius:20px;overflow:hidden;border:1px solid var(--border-dim);}
+
+.hero-hp-fill {
+  height:100%;border-radius:20px;
+  background:linear-gradient(90deg,#c0392b,#e05252);transition:width .5s ease;
+  position:relative;
+}
+
+.hero-hp-fill::after{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(90deg,transparent 0%,rgba(255,255,255,.2) 50%,transparent 100%);border-radius:20px;}
+
+.hero-hp-text{font-family:var(--font-title);font-size:.8rem;font-weight:700;color:var(--hp-red);min-width:50px;text-align:right;}
+
+.deck-badge{font-family:var(--font-title);font-size:.6rem;letter-spacing:2px;color:var(--text-dim);display:flex;align-items:center;gap:4px;}
+.deck-badge .count{color:var(--gold-mid);font-weight:700;}
+
+/* Battlefield */
+.battlefield {
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  min-height:0;overflow-x:auto;overflow-y:hidden;padding:3px 2px;
+}
+
+.battlefield::-webkit-scrollbar{height:3px;}
+.battlefield::-webkit-scrollbar-thumb{background:var(--border-dim);border-radius:2px;}
+.battlefield-empty{font-family:var(--font-title);font-size:.7rem;letter-spacing:3px;color:var(--border-dim);text-transform:uppercase;pointer-events:none;user-select:none;}
+
+/* Hand */
+.hand-area{display:flex;align-items:flex-end;justify-content:center;gap:5px;min-height:0;overflow-x:auto;overflow-y:hidden;padding:3px 2px;}
+.hand-area::-webkit-scrollbar{display:none;}
+
+/* Enemy face-down */
+.enemy-hand-wrap{display:flex;align-items:center;gap:4px;}
+.card-back{width:44px;height:64px;background:linear-gradient(135deg,#1a0e28,#2a1820);border:1px solid rgba(201,162,39,.3);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;}
+
+/* Center strip */
+.center-strip{display:flex;align-items:center;justify-content:space-between;padding:5px 14px;background:rgba(0,0,0,.4);border-radius:8px;border:1px solid var(--border-dim);}
+
+.mana-display{display:flex;align-items:center;gap:9px;}
+.mana-label{font-family:var(--font-title);font-size:.6rem;letter-spacing:3px;color:var(--text-dim);text-transform:uppercase;}
+.mana-pips{display:flex;gap:4px;}
+
+.mana-pip{width:17px;height:17px;border-radius:50%;border:1.5px solid rgba(74,144,217,.35);background:rgba(0,0,0,.4);transition:all .3s ease;}
+.mana-pip.filled{background:radial-gradient(circle,#6db8ff,var(--mana-blue));border-color:var(--mana-blue);box-shadow:0 0 7px var(--mana-glow);}
+.mana-number{font-family:var(--font-title);font-size:1rem;font-weight:700;color:var(--mana-blue);}
+
+.turn-info{text-align:center;}
+.turn-label{font-family:var(--font-display);font-size:.6rem;letter-spacing:3px;color:var(--text-dim);text-transform:uppercase;display:block;}
+.turn-player{font-family:var(--font-title);font-size:.9rem;color:var(--gold-bright);text-shadow:0 0 10px rgba(240,192,64,.4);}
+.turn-player.my-turn{color:#7fd47f;text-shadow:0 0 10px rgba(127,212,127,.4);}
+
+.btn-end-turn{font-family:var(--font-title);font-size:.65rem;letter-spacing:3px;text-transform:uppercase;padding:9px 20px;background:linear-gradient(135deg,var(--gold-dark),var(--gold-mid));color:#060a10;border:none;border-radius:8px;cursor:pointer;transition:transform .15s,box-shadow .15s;position:relative;overflow:hidden;}
+.btn-end-turn::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,var(--gold-mid),var(--gold-bright));opacity:0;transition:opacity .15s;}
+.btn-end-turn:hover{transform:translateY(-2px);box-shadow:var(--glow-gold);}
+.btn-end-turn:hover::after{opacity:1;}
+.btn-end-turn span{position:relative;z-index:1;}
+.btn-end-turn:disabled{opacity:.3;cursor:not-allowed;transform:none;}
+
+/* ─── CARDS ───────────────────────────────── */
+.card {
+  width:88px;
+  background:linear-gradient(160deg,#1a2240,#0e1628);
+  border:1px solid var(--border-dim);border-radius:var(--radius);
+  padding:5px;cursor:pointer;
+  transition:transform .2s,box-shadow .2s,border-color .2s;
+  position:relative;flex-shrink:0;user-select:none;
+  display:flex;flex-direction:column;gap:3px;
+}
+
+.card.enemy-card{background:linear-gradient(160deg,#2a1220,#1a0e18);border-color:rgba(224,82,82,.2);}
+.card:hover{transform:translateY(-4px);box-shadow:0 8px 24px rgba(0,0,0,.5);}
+.card.selected{border-color:var(--mana-blue);box-shadow:var(--glow-select);transform:translateY(-6px);}
+.card.can-attack{border-color:var(--gold-mid);box-shadow:0 0 10px rgba(201,162,39,.3);}
+.card.can-attack:hover{border-color:var(--gold-bright);box-shadow:var(--glow-gold);}
+.card.exhausted{opacity:.5;filter:grayscale(40%);cursor:default;}
+.card.exhausted:hover{transform:none;}
+.card.target-glow{border-color:#ff4444;box-shadow:var(--glow-attack);animation:targetPulse .8s infinite alternate;}
+.card.unplayable{opacity:.45;cursor:not-allowed;}
+.card.unplayable:hover{transform:none;}
+
+.hand-area .card{transform-origin:bottom center;}
+.hand-area .card:hover{transform:translateY(-12px) scale(1.05);z-index:10;}
+.hand-area .card.selected{transform:translateY(-16px) scale(1.08);z-index:20;}
+.hand-area .card.unplayable:hover{transform:translateY(-2px);}
+
+.card-cost{position:absolute;top:-8px;left:-8px;width:22px;height:22px;border-radius:50%;background:radial-gradient(circle,#6db8ff,var(--mana-blue));border:1.5px solid #90caff;display:flex;align-items:center;justify-content:center;font-family:var(--font-title);font-size:.75rem;font-weight:700;color:#fff;box-shadow:0 0 9px var(--mana-glow);z-index:2;}
+
+.card-art{height:50px;background:linear-gradient(135deg,#0d1525,#1a2035);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:1.7rem;border:1px solid rgba(255,255,255,.05);position:relative;overflow:hidden;}
+.card-art::after{content:'';position:absolute;inset:0;background:linear-gradient(160deg,rgba(255,255,255,.03) 0%,transparent 60%);}
+
+.card-name{font-family:var(--font-title);font-size:.58rem;font-weight:700;color:var(--text-bright);text-align:center;letter-spacing:.5px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.card-stats{display:flex;justify-content:space-between;align-items:center;padding:0 2px;}
+.stat-attack{background:linear-gradient(135deg,#8b2020,#c0392b);color:#ffcccc;font-family:var(--font-title);font-size:.72rem;font-weight:700;padding:2px 5px;border-radius:4px;border:1px solid rgba(255,100,100,.3);}
+.stat-hp{background:linear-gradient(135deg,#1a4a2e,#27ae60);color:#ccffdd;font-family:var(--font-title);font-size:.72rem;font-weight:700;padding:2px 5px;border-radius:4px;border:1px solid rgba(100,255,150,.3);}
+.stat-hp.low{background:linear-gradient(135deg,#4a1a1a,#c0392b);color:#ffcccc;}
+.card-ability-icon{text-align:center;font-size:.52rem;color:var(--gold-mid);font-style:italic;font-family:var(--font-body);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 2px;line-height:1.2;}
+
+.card[data-tooltip]:hover::after{content:attr(data-tooltip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:rgba(8,11,18,.97);border:1px solid var(--border-gold);border-radius:8px;padding:8px 12px;font-family:var(--font-body);font-size:.76rem;font-style:italic;color:var(--gold-mid);width:180px;text-align:center;z-index:100;white-space:normal;line-height:1.4;box-shadow:0 8px 24px rgba(0,0,0,.8),var(--glow-gold);pointer-events:none;}
+
+/* ─── LOG ─────────────────────────────────── */
+#game-log{position:fixed;bottom:8px;left:8px;width:220px;max-height:120px;overflow-y:auto;background:rgba(8,11,18,.88);border:1px solid var(--border-dim);border-radius:8px;padding:7px;z-index:50;backdrop-filter:blur(4px);}
+#game-log::-webkit-scrollbar{width:3px;}
+#game-log::-webkit-scrollbar-thumb{background:var(--border-dim);border-radius:2px;}
+.log-entry{font-family:var(--font-body);font-size:.72rem;color:var(--text-dim);padding:1px 0;border-bottom:1px solid rgba(255,255,255,.03);line-height:1.3;}
+.log-entry.important{color:var(--gold-mid);}
+.log-entry.damage{color:#ff8888;}
+.log-entry.special{color:#88aaff;font-style:italic;}
+
+/* ─── NETWORK STATUS ──────────────────────── */
+#net-status{position:fixed;top:8px;right:8px;z-index:60;}
+
+/* ─── GAME OVER ───────────────────────────── */
+#gameover-overlay{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:200;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:20px;backdrop-filter:blur(6px);}
+#gameover-overlay.hidden{display:none;}
+.gameover-title{font-family:var(--font-display);font-size:3rem;color:var(--gold-bright);text-shadow:0 0 60px rgba(240,192,64,.6);animation:fadeInDown .6s ease both;text-align:center;}
+.gameover-subtitle{font-family:var(--font-title);font-size:1rem;color:var(--text-dim);letter-spacing:4px;animation:fadeInUp .6s .2s ease both;text-align:center;}
+
+/* ─── TOAST ───────────────────────────────── */
+#toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:rgba(8,11,18,.95);border:1px solid var(--border-gold);border-radius:30px;padding:9px 22px;font-family:var(--font-title);font-size:.75rem;letter-spacing:2px;color:var(--gold-bright);z-index:400;opacity:0;transition:opacity .3s;pointer-events:none;box-shadow:var(--glow-gold);}
+#toast.show{opacity:1;}
+
+/* ─── DAMAGE FLOAT ────────────────────────── */
+.damage-float{position:fixed;font-family:var(--font-display);font-size:1.6rem;font-weight:700;color:#ff4444;text-shadow:0 0 10px rgba(255,68,68,.8);pointer-events:none;z-index:300;animation:floatUp 1s ease forwards;}
+
+/* ─── KEYFRAMES ───────────────────────────── */
+@keyframes spin{to{transform:rotate(360deg);}}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+@keyframes fadeInDown{from{opacity:0;transform:translateY(-20px);}to{opacity:1;transform:translateY(0);}}
+@keyframes fadeInUp{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+@keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1.2);}100%{opacity:0;transform:translateY(-80px) scale(.8);}}
+@keyframes targetPulse{from{box-shadow:0 0 10px rgba(255,68,68,.4);}to{box-shadow:0 0 30px rgba(255,68,68,.9);}}
+@keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-6px);}40%{transform:translateX(6px);}60%{transform:translateX(-4px);}80%{transform:translateX(4px);}}
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<!-- NET STATUS BADGE -->
+<div id="net-status"></div>
+
+<!-- ══════════════════════════════════
+     SCREEN 1: LOBBY
+══════════════════════════════════ -->
+<div id="lobby-screen" class="screen">
+  <div class="lobby-box">
+    <div class="game-logo">
+      <h1>ARCANE DUEL</h1>
+      <p>Online · AI-Powered Card Battler</p>
+    </div>
+    <div class="divider"></div>
+
+    <div class="lobby-card">
+      <h2>⚔ Create a Game</h2>
+      <p>Start a new room and send the link to your opponent.</p>
+      <button class="btn-primary" id="btn-create"><span>✦ Create Room & Get Link</span></button>
+
+      <div class="room-display" id="room-display">
+        <div class="room-label">Your Room Code</div>
+        <div class="room-code" id="room-code-text">—</div>
+        <div class="share-link-box">
+          <div class="share-link-text" id="share-link-text">generating…</div>
+          <button class="btn-copy" id="btn-copy">Copy Link</button>
+        </div>
+        <div class="waiting-pulse" id="waiting-text">⏳ Waiting for opponent to join…</div>
+      </div>
+    </div>
+
+    <div class="lobby-card">
+      <h2>🔮 Join a Game</h2>
+      <p>Paste the room code your friend shared with you.</p>
+      <div class="join-row">
+        <input class="code-input" id="join-code-input" placeholder="Paste room code…" maxlength="36" autocomplete="off" spellcheck="false">
+        <button class="btn-join" id="btn-join">Join →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     SCREEN 2: WORD INPUT
+══════════════════════════════════ -->
+<div id="pregame-screen" class="screen hidden">
+  <div class="pregame-container">
+    <div class="game-logo">
+      <h1>ARCANE DUEL</h1>
+      <p id="pregame-role-subtitle">Forge Your Deck</p>
+    </div>
+    <div class="divider"></div>
+
+    <!-- MY words -->
+    <div class="player-input-card" id="my-input-card">
+      <div class="player-badge" id="my-badge">⚔ Your Words</div>
+      <h2>Choose Your 8 Words</h2>
+      <p class="hint">Each word becomes a unique AI-generated card.</p>
+      <div class="words-grid" id="my-words-grid"></div>
+      <div class="word-counter">Words entered: <span id="my-count">0</span> / 8</div>
+      <button class="btn-primary" id="btn-confirm-words" style="margin-top:14px;" disabled>
+        <span>✦ Lock In My Words</span>
+      </button>
+    </div>
+
+    <!-- Opponent status -->
+    <div class="opponent-waiting" id="opponent-waiting">
+      <p id="opponent-status-text">⏳ Waiting for opponent to enter their words…</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     SCREEN 3: LOADING
+══════════════════════════════════ -->
+<div id="loading-screen" class="screen hidden">
+  <div class="sigil-ring"></div>
+  <div class="loading-title">Conjuring Cards…</div>
+  <div class="loading-status">The AI weaves meaning into power.<br>Generating <em id="loading-word">—</em></div>
+</div>
+
+<!-- ══════════════════════════════════
+     SCREEN 4: GAME BOARD
+══════════════════════════════════ -->
+<div id="game-screen" class="screen hidden">
+  <div class="game-board">
+
+    <!-- Enemy zone (top) -->
+    <div class="enemy-zone">
+      <div class="zone-header">
+        <div class="hero-portrait" id="enemy-portrait">🔮</div>
+        <div class="hero-info">
+          <div class="hero-name" id="enemy-name">OPPONENT</div>
+          <div class="hero-hp-bar-wrap">
+            <span class="hero-hp-icon">❤️</span>
+            <div class="hero-hp-bar"><div class="hero-hp-fill" id="enemy-hp-fill" style="width:100%"></div></div>
+            <div class="hero-hp-text" id="enemy-hp-text">20/20</div>
+          </div>
+        </div>
+        <div class="deck-badge">🃏 <span class="count" id="enemy-deck-count">5</span></div>
+        <div class="enemy-hand-wrap" id="enemy-hand-display"></div>
+      </div>
+      <div class="battlefield" id="enemy-battlefield"><span class="battlefield-empty">— No creatures —</span></div>
+      <div></div>
+    </div>
+
+    <!-- Center strip -->
+    <div class="center-strip">
+      <div class="mana-display">
+        <div class="mana-label">Elixir</div>
+        <div class="mana-pips" id="mana-pips"></div>
+        <div class="mana-number" id="mana-number">1/1</div>
+      </div>
+      <div class="turn-info">
+        <span class="turn-label">Active</span>
+        <div class="turn-player" id="turn-display">—</div>
+      </div>
+      <button class="btn-end-turn" id="btn-end-turn" onclick="endTurn()" disabled><span>End Turn ⟶</span></button>
+    </div>
+
+    <!-- Player zone (bottom) -->
+    <div class="player-zone">
+      <div class="hand-area" id="player-hand"></div>
+      <div class="battlefield" id="player-battlefield"><span class="battlefield-empty">— Play a card —</span></div>
+      <div class="zone-header" style="flex-direction:row-reverse;">
+        <div class="hero-portrait" id="player-portrait">⚡</div>
+        <div class="hero-info" style="text-align:right;">
+          <div class="hero-name" id="player-name">YOU</div>
+          <div class="hero-hp-bar-wrap" style="flex-direction:row-reverse;">
+            <span class="hero-hp-icon">❤️</span>
+            <div class="hero-hp-bar"><div class="hero-hp-fill" id="player-hp-fill" style="width:100%"></div></div>
+            <div class="hero-hp-text" id="player-hp-text">20/20</div>
+          </div>
+        </div>
+        <div class="deck-badge">🃏 <span class="count" id="player-deck-count">5</span></div>
+      </div>
+    </div>
+  </div>
+  <div id="game-log"></div>
+</div>
+
+<!-- GAME OVER -->
+<div id="gameover-overlay" class="hidden">
+  <div class="gameover-title" id="gameover-title">Victory!</div>
+  <div class="gameover-subtitle" id="gameover-subtitle"></div>
+  <button class="btn-primary" style="width:auto;padding:14px 50px;" onclick="location.href=location.pathname"><span>⚔ Play Again</span></button>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   ARCANE DUEL — Online Multiplayer via PeerJS (WebRTC P2P)
+
+   Flow:
+   HOST: Creates peer → gets roomID → shares link → waits
+   GUEST: Opens link?room=ID → connects to host
+   Both: Enter 8 words → host generates all cards → game starts
+   Sync: All actions sent as JSON messages over P2P DataChannel
+         HOST is authoritative; sends full state after each action
+═══════════════════════════════════════════════════════════ */
+
+// ─── NETWORK STATE ─────────────────────────────────────────
+const NET = {
+  peer: null,       // Our PeerJS peer
+  conn: null,       // DataConnection to opponent
+  isHost: false,    // Are we the game host?
+  myRole: null,     // 'p1' (host) or 'p2' (guest)
+  roomId: null,     // The room/peer ID used
+  myWordsReady: false,
+  oppWordsReady: false,
+  myWords: [],
+  oppWords: [],
+};
+
+// ─── EMOJI MAP ─────────────────────────────────────────────
+const EMOJIS = {
+  default:['⚔️','🗡️','🔥','💀','🌑','⚡','🌊','🍃','🌪️','❄️','☄️','🪄','🔮','🌙','💎','🐉','🦅','🐺','🦁','🕷️'],
+  chainsaw:'🪚',wizard:'🧙',dragon:'🐉',fire:'🔥',ice:'❄️',water:'🌊',
+  shadow:'🌑',lightning:'⚡',stone:'🪨',tree:'🌳',sword:'⚔️',shield:'🛡️',
+  ghost:'👻',vampire:'🧛',wolf:'🐺',eagle:'🦅',snake:'🐍',spider:'🕷️',
+  zombie:'🧟',angel:'👼',demon:'😈',king:'👑',knight:'🏇',
+  poison:'☠️',heal:'💊',magic:'✨',curse:'💜',gold:'💰',thief:'🦹',
+  taxation:'📜',sadness:'😢',chaos:'🌀',time:'⏳',death:'💀',love:'💖',
+  darkness:'🌑',light:'✨',music:'🎵',book:'📖',bomb:'💣',robot:'🤖',
+};
+
+function getEmoji(word){
+  const l=word.toLowerCase();
+  if(EMOJIS[l])return EMOJIS[l];
+  for(const[k,v]of Object.entries(EMOJIS))if(l.includes(k))return v;
+  const d=EMOJIS.default;return d[Math.abs(hashCode(l))%d.length];
+}
+
+function hashCode(s){let h=0;for(let i=0;i<s.length;i++)h=Math.imul(31,h)+s.charCodeAt(i)|0;return h;}
+
+// ─── CARD GENERATION (MOCK) ───────────────────────────────
+function mockGenerateCard(word){
+  const l=word.toLowerCase(),len=l.length,h=Math.abs(hashCode(l));
+  const isD=/war|kill|death|bomb|fire|destroy|blast|doom|axe|sword|saw|chain|gun|rage|blood|chaos|slash|murder|havoc|wreck/.test(l);
+  const isF=/shield|guard|wall|armor|fortress|protect|stone|iron|defend|ward/.test(l);
+  const isM=/wizard|magic|spell|curse|witch|mystic|arcane|rune|sorcery|void|shadow|ench/.test(l);
+  const isN=/tree|forest|vine|seed|water|ocean|earth|wind|wolf|bear|eagle|snake|dragon|flower/.test(l);
+  const isE=/sad|happy|love|fear|anger|joy|grief|pain|hope|melancholy|depression|anxiety|bless/.test(l);
+  const isT=/robot|machine|digital|cyber|code|tech|electric|laser|plasma|circuit|android/.test(l);
+
+  let base=1+(len%4);
+  if(isD)base+=2;if(isM)base+=1;
+  const cost=Math.min(10,Math.max(1,base+(h%3)-1));
+  const atk =Math.min(12,Math.max(1,base+(h%3)));
+  const hp  =Math.min(12,Math.max(1,(isF?base+3:base)+(h%2)));
+  const multi=isD&&len>=6&&h%3===0;
+  const atkStr=multi?`${Math.ceil(atk/2)}x2`:String(atk);
+  return{
+    id:`${l}_${Date.now()}_${h}`,
+    name:word.charAt(0).toUpperCase()+l.slice(1),
+    cost,hp,maxHp:hp,
+    attack:atkStr,rawAttack:atk,isMultiHit:multi,
+    ability:genAbility(l,isD,isF,isM,isN,isE,isT,h),
+    flavorText:genFlavor(l,isD,isM,isN,isE),
+    emoji:getEmoji(word),
+    exhausted:false,justPlayed:false,
+  };
+}
+
+function genAbility(w,d,f,m,n,e,t,h){
+  const map={chainsaw:'5% chance to shatter itself on attack.',vampire:'Lifesteal: heals 50% of damage dealt.',ghost:'30% chance to evade attacks.',shield:'Grants adjacent ally +2 defense.',poison:'Poisons target: 1 damage/turn for 3 turns.',heal:'On play: restore 3 HP to your Hero.',bomb:'On death: deals 3 damage to all enemies.',zombie:'Resurrects with 1 HP once.',dragon:'Breath: +2 damage to enemy Hero on attack.',wizard:'Arcane: can attack the turn it is played.',sadness:'Despair Aura: enemy creatures lose 1 ATK.',taxation:'On play: enemy loses 1 Elixir next turn.',time:'Frozen Moment: target creature skips next attack.',robot:'Overclock: +2 ATK but takes 1 self-damage/turn.'};
+  for(const[k,v]of Object.entries(map))if(w.includes(k))return v;
+  if(d&&h%4===0)return`${5+h%16}% critical strike (double damage).`;
+  if(d&&h%4===1)return'Cleave: 50% damage to adjacent enemies.';
+  if(f&&h%3===0)return'Taunt: enemy must attack this creature first.';
+  if(f&&h%3===1)return'Fortify: gains +1 HP each turn.';
+  if(m&&h%3===0)return'Spellbound: immune to first damage instance.';
+  if(n&&h%3===0)return'Regenerate: recovers 1 HP at end of each turn.';
+  if(e&&h%4===0)return'Empathy: gains +1 ATK when your Hero loses HP.';
+  if(t&&h%3===0)return'Targeting System: ignores Taunt when attacking.';
+  return['First Strike: attacks before the defender.','Stealth: untargetable until it attacks.','Bloodlust: gains +1 ATK on each kill.','Ward: absorbs the first 2 damage.','Rally: adjacent allies +1 ATK on entry.','Vigilance: does not exhaust after attacking.'][h%6];
+}
+
+function genFlavor(w,d,m,n,e){
+  const t=d?[`"${w.toUpperCase()} knows only endings."`,'"Born from violence."','"It does not hesitate."']:
+          m?['"Reality bends at its whisper."','"Between words, magic breathes."','"Impossible is unsolved."']:
+          n?['"The wild asks no permission."','"Ancient as root."','"Nature remembers."']:
+          e?['"Feelings are the oldest currency."','"To name it is to summon it."','"The heart, sharpest of blades."']:
+          ['"Even mundane things hold power."','"Context is everything."','"Stillness is not weakness."'];
+  return t[Math.abs(hashCode(w+'f'))%t.length];
+}
+
+async function generateAllCards(p1Words,p2Words,statusCb){
+  const p1=[],p2=[];
+  for(const w of p1Words){statusCb&&statusCb(w);await sleep(280);p1.push(mockGenerateCard(w));}
+  for(const w of p2Words){statusCb&&statusCb(w);await sleep(280);p2.push(mockGenerateCard(w));}
+  return{p1,p2};
+}
+
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+// ═══════════════════════════════════════════════════════════
+// GAME STATE
+// ═══════════════════════════════════════════════════════════
+const G={
+  turn:1,round:1,maxMana:1,currentMana:1,
+  p1:{name:'Player 1',emoji:'⚡',hp:20,maxHp:20,deck:[],hand:[],board:[],allCards:[]},
+  p2:{name:'Player 2',emoji:'🔮',hp:20,maxHp:20,deck:[],hand:[],board:[],allCards:[]},
+  selectedCard:null,attackMode:false,phase:'lobby',
+};
+
+function myPlayer(){return NET.myRole==='p1'?G.p1:G.p2;}
+function oppPlayer(){return NET.myRole==='p1'?G.p2:G.p1;}
+function isMyTurn(){return(NET.myRole==='p1'&&G.turn===1)||(NET.myRole==='p2'&&G.turn===2);}
+
+// ═══════════════════════════════════════════════════════════
+// PEER / NETWORK SETUP
+// ═══════════════════════════════════════════════════════════
+function createPeer(id=undefined){
+  return new Promise((resolve,reject)=>{
+    const opts={debug:0};
+    const p=id?new Peer(id,opts):new Peer(opts);
+    p.on('open',pid=>{NET.peer=p;NET.roomId=pid;resolve(pid);});
+    p.on('error',e=>{reject(e);});
+  });
+}
+
+function setNetStatus(label,type='connecting'){
+  const colors={connecting:'orange',connected:'green',error:'red'};
+  const dotClass=colors[type]||'orange';
+  document.getElementById('net-status').innerHTML=
+    `<div class="status-badge ${type}"><div class="dot ${dotClass}"></div>${label}</div>`;
+}
+
+function send(data){
+  if(NET.conn&&NET.conn.open){NET.conn.send(JSON.stringify(data));}
+}
+
+function onMessage(raw){
+  const msg=JSON.parse(raw);
+  switch(msg.type){
+    case 'opponent_joined':
+      // Host receives this when guest connects
+      document.getElementById('waiting-text').textContent='✅ Opponent joined! Starting…';
+      setTimeout(()=>showPregame(),1000);
+      break;
+
+    case 'words_ready':
+      // We received opponent's words
+      NET.oppWords=msg.words;
+      NET.oppWordsReady=true;
+      addLog('🤝 Opponent locked in their words!','important');
+      document.getElementById('opponent-status-text').textContent='✅ Opponent is ready!';
+      if(NET.myWordsReady) startGeneration();
+      break;
+
+    case 'game_state':
+      // Full state sync from host
+      applyState(msg.state);
+      renderAll();
+      break;
+
+    case 'action':
+      // Host receives guest actions, processes and re-broadcasts
+      if(NET.isHost) processGuestAction(msg.action);
+      break;
+
+    case 'chat':
+      addLog(`💬 Opp: ${msg.text}`,'special');
+      break;
+  }
+}
+
+function applyState(state){
+  G.turn=state.turn;G.round=state.round;
+  G.maxMana=state.maxMana;G.currentMana=state.currentMana;
+  G.p1=state.p1;G.p2=state.p2;G.phase=state.phase;
+  document.getElementById('btn-end-turn').disabled=!isMyTurn();
+}
+
+function broadcastState(){
+  // Host sends full game state to guest after every action
+  send({type:'game_state',state:{
+    turn:G.turn,round:G.round,maxMana:G.maxMana,currentMana:G.currentMana,
+    p1:G.p1,p2:G.p2,phase:G.phase
+  }});
+}
+
+function sendAction(action){
+  if(NET.isHost){
+    // Host processes own actions directly
+    processAction(action);
+  }else{
+    // Guest sends action to host for processing
+    send({type:'action',action});
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOBBY UI
+// ═══════════════════════════════════════════════════════════
+function initLobby(){
+  setNetStatus('Not connected','connecting');
+
+  // Auto-join if URL has ?room=xxx
+  const params=new URLSearchParams(location.search);
+  const roomParam=params.get('room');
+  if(roomParam){
+    document.getElementById('join-code-input').value=roomParam;
+    setTimeout(()=>joinRoom(roomParam),400);
+    return;
+  }
+
+  document.getElementById('btn-create').addEventListener('click',async()=>{
+    document.getElementById('btn-create').disabled=true;
+    document.getElementById('btn-create').querySelector('span').textContent='Creating room…';
+    try{
+      const pid=await createPeer();
+      NET.isHost=true;NET.myRole='p1';
+      const url=`${location.origin}${location.pathname}?room=${pid}`;
+      document.getElementById('room-code-text').textContent=pid.substring(0,8).toUpperCase()+'…';
+      document.getElementById('share-link-text').textContent=url;
+      document.getElementById('room-display').classList.add('visible');
+
+      document.getElementById('btn-copy').onclick=()=>{
+        navigator.clipboard.writeText(url).then(()=>showToast('Link copied!'));
+      };
+
+      setNetStatus('Waiting for opponent…','connecting');
+
+      // Listen for incoming connection
+      NET.peer.on('connection',conn=>{
+        NET.conn=conn;
+        conn.on('open',()=>{
+          setNetStatus('Connected!','connected');
+          addLog('🔗 Opponent connected!','important');
+          send({type:'opponent_joined'});
+        });
+        conn.on('data',onMessage);
+        conn.on('close',()=>setNetStatus('Disconnected','error'));
+      });
+    }catch(e){
+      showToast('Error creating room. Try again.');
+      document.getElementById('btn-create').disabled=false;
+    }
+  });
+
+  document.getElementById('btn-join').addEventListener('click',()=>{
+    const code=document.getElementById('join-code-input').value.trim();
+    if(!code){showToast('Paste a room code first!');return;}
+    joinRoom(code);
+  });
+}
+
+async function joinRoom(hostId){
+  setNetStatus('Connecting…','connecting');
+  try{
+    await createPeer();
+    NET.isHost=false;NET.myRole='p2';
+    const conn=NET.peer.connect(hostId,{reliable:true});
+    NET.conn=conn;
+    conn.on('open',()=>{
+      setNetStatus('Connected!','connected');
+      addLog('🔗 Connected to room!','important');
+    });
+    conn.on('data',onMessage);
+    conn.on('close',()=>setNetStatus('Disconnected','error'));
+    conn.on('error',()=>{setNetStatus('Connection failed','error');showToast('Could not connect. Check the code.');});
+  }catch(e){
+    setNetStatus('Error','error');
+    showToast('Connection error. Try again.');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PREGAME (WORDS)
+// ═══════════════════════════════════════════════════════════
+function showPregame(){
+  show('pregame-screen');
+  const role=NET.isHost?'p1':'p2';
+  document.getElementById('my-badge').textContent=NET.isHost?'⚔ Player 1 — Your Words':'🔮 Player 2 — Your Words';
+  document.getElementById('pregame-role-subtitle').textContent=NET.isHost?'You are Player 1 (Host)':'You are Player 2 (Guest)';
+  buildWordGrid('my-words-grid','my');
+
+  document.getElementById('btn-confirm-words').addEventListener('click',()=>{
+    const words=getWords('my-words-grid');
+    if(words.length<8){showToast('Enter all 8 words!');return;}
+    NET.myWords=words;NET.myWordsReady=true;
+    document.getElementById('btn-confirm-words').disabled=true;
+    document.getElementById('btn-confirm-words').querySelector('span').textContent='✅ Words Locked!';
+    addLog('✦ Your words are locked in!','important');
+
+    // Send words to opponent
+    send({type:'words_ready',words});
+
+    if(NET.oppWordsReady){
+      if(NET.isHost) startGeneration();
+    }else{
+      document.getElementById('opponent-status-text').textContent='⏳ Waiting for opponent to lock in their words…';
+    }
+  });
+}
+
+function buildWordGrid(gridId,prefix){
+  const grid=document.getElementById(gridId);
+  grid.innerHTML='';
+  const ph=['e.g. chainsaw','wizard','taxation','shadow','dragon','sadness','lightning','fortress'];
+  for(let i=0;i<8;i++){
+    const inp=document.createElement('input');
+    inp.className='word-input';inp.type='text';inp.maxLength=20;inp.placeholder=ph[i]||`Word ${i+1}`;
+    inp.addEventListener('input',()=>updateCount(prefix));
+    grid.appendChild(inp);
+  }
+}
+
+function getWords(gridId){
+  return Array.from(document.querySelectorAll(`#${gridId} .word-input`))
+    .map(i=>i.value.trim()).filter(w=>w.length>0).slice(0,8);
+}
+
+function updateCount(prefix){
+  const inputs=document.querySelectorAll(`#${prefix}-words-grid .word-input`);
+  let c=0;inputs.forEach(i=>{const f=i.value.trim().length>0;i.classList.toggle('filled',f);if(f)c++;});
+  document.getElementById(`${prefix}-count`).textContent=c;
+  document.getElementById('btn-confirm-words').disabled=c<8;
+}
+
+// ═══════════════════════════════════════════════════════════
+// CARD GENERATION — HOST ONLY
+// ═══════════════════════════════════════════════════════════
+async function startGeneration(){
+  // Only host generates cards and distributes
+  if(!NET.isHost)return;
+  show('loading-screen');
+  const {p1,p2}=await generateAllCards(
+    NET.myWords, NET.oppWords,
+    w=>{document.getElementById('loading-word').textContent=w.toUpperCase();}
+  );
+  G.p1.allCards=p1;G.p2.allCards=p2;
+  setupDecks();
+  G.phase='game';G.turn=1;G.round=1;G.maxMana=1;G.currentMana=1;
+  startGameUI();
+  broadcastState(); // Send initial state to guest
+}
+
+function setupDecks(){
+  const clone=c=>({...c,exhausted:false,justPlayed:false,hp:c.maxHp});
+  G.p1.deck=shuffle(G.p1.allCards.map(clone));
+  G.p2.deck=shuffle(G.p2.allCards.map(clone));
+  G.p1.hand=G.p1.deck.splice(0,3);
+  G.p2.hand=G.p2.deck.splice(0,3);
+  G.p1.board=[];G.p2.board=[];
+}
+
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+// ═══════════════════════════════════════════════════════════
+// GAME START
+// ═══════════════════════════════════════════════════════════
+function startGameUI(){
+  show('game-screen');
+  G.phase='game';
+  document.getElementById('player-name').textContent=NET.isHost?'YOU (P1)':'YOU (P2)';
+  document.getElementById('enemy-name').textContent=NET.isHost?'OPPONENT (P2)':'OPPONENT (P1)';
+  document.getElementById('player-portrait').textContent=myPlayer().emoji;
+  document.getElementById('enemy-portrait').textContent=oppPlayer().emoji;
+  document.getElementById('btn-end-turn').disabled=!isMyTurn();
+  addLog('⚔ The Arcane Duel begins!','important');
+  addLog(`Round 1 — ${G.p1.name}'s turn (Host).`,'important');
+  renderAll();
+}
+
+// ═══════════════════════════════════════════════════════════
+// ACTIONS — sent through network
+// ═══════════════════════════════════════════════════════════
+function processGuestAction(action){
+  // HOST ONLY: process actions sent by guest
+  switch(action.type){
+    case 'play_card':
+      doPlayCard(G.p2,action.handIndex);break;
+    case 'attack_card':
+      doAttackCard(action);break;
+    case 'attack_hero':
+      doAttackHero(action);break;
+    case 'end_turn':
+      doEndTurn();break;
+  }
+  broadcastState();
+}
+
+function processAction(action){
+  // HOST processing their own actions
+  const ap=G.turn===1?G.p1:G.p2;
+  switch(action.type){
+    case 'play_card': doPlayCard(ap,action.handIndex);break;
+    case 'attack_card': doAttackCard(action);break;
+    case 'attack_hero': doAttackHero(action);break;
+    case 'end_turn': doEndTurn();break;
+  }
+  if(NET.isHost) broadcastState();
+  checkGameOver();
+  renderAll();
+}
+
+// ─── PLAY CARD ─────────────────────────────────────────────
+function doPlayCard(player,idx){
+  const card=player.hand[idx];if(!card)return;
+  G.currentMana-=card.cost;
+  player.hand.splice(idx,1);
+  if(card.ability.toLowerCase().includes('arcane')&&card.ability.toLowerCase().includes('same turn'))card.justPlayed=false;
+  else card.justPlayed=true;
+  card.exhausted=false;
+  player.board.push(card);
+  if(card.ability.toLowerCase().includes('on play: restore')){
+    const m=card.ability.match(/restore (\d+) hp/i);
+    if(m)player.hp=Math.min(player.maxHp,player.hp+parseInt(m[1]));
+  }
+  addLog(`✦ ${card.name} played (${card.cost} Elixir)`,'important');
+}
+
+// ─── ATTACK CARD ───────────────────────────────────────────
+function doAttackCard({atkOwner,atkIdx,defOwner,defIdx}){
+  const atO=atkOwner==='p1'?G.p1:G.p2;
+  const deO=defOwner==='p1'?G.p1:G.p2;
+  const atC=atO.board[atkIdx];const deC=deO.board[defIdx];
+  if(!atC||!deC)return;
+
+  // Ghost evade
+  if(deC.ability.toLowerCase().includes('evade')&&Math.random()<.3){addLog(`👻 ${deC.name} evades!`,'special');atC.exhausted=true;return;}
+  // Chainsaw self-break
+  if(atC.ability.toLowerCase().includes('shatter')&&Math.random()<.05){addLog(`🪚 ${atC.name} shatters!`,'special');atO.board.splice(atO.board.indexOf(atC),1);return;}
+
+  const dmg=calcDmg(atC),ctr=calcDmg(deC);
+  deC.hp-=dmg;atC.hp-=ctr;
+  addLog(`⚔ ${atC.name}(${dmg}) vs ${deC.name}(${ctr})`,'damage');
+
+  if(atC.ability.toLowerCase().includes('lifesteal')){
+    const h=Math.floor(dmg*.5);atO.hp=Math.min(atO.maxHp,atO.hp+h);
+    addLog(`🩸 Lifesteal +${h} HP`,'special');
+  }
+  if(atC.ability.toLowerCase().includes('cleave')){
+    deO.board.forEach(c=>{if(c.id!==deC.id)c.hp-=Math.floor(dmg*.5);});
+    addLog(`🗡 Cleave!`,'special');
+  }
+  atC.exhausted=true;
+  removeDeadCards(atO,deO);
+}
+
+// ─── ATTACK HERO ───────────────────────────────────────────
+function doAttackHero({atkOwner,atkIdx,targetOwner}){
+  const atO=atkOwner==='p1'?G.p1:G.p2;
+  const tgO=targetOwner==='p1'?G.p1:G.p2;
+  const atC=atO.board[atkIdx];if(!atC)return;
+  const dmg=calcDmg(atC);
+  tgO.hp-=dmg;atC.exhausted=true;
+  addLog(`⚔ ${atC.name} attacks Hero for ${dmg}!`,'damage');
+  if(atC.ability.toLowerCase().includes('breath')){tgO.hp-=2;addLog(`🐉 +2 Breath damage!`,'special');}
+}
+
+// ─── END TURN ─────────────────────────────────────────────
+function doEndTurn(){
+  const prev=G.turn;
+  G.turn=G.turn===1?2:1;
+  if(G.turn===1)G.round++;
+  G.maxMana=Math.min(10,G.round);G.currentMana=G.maxMana;
+  const ap=G.turn===1?G.p1:G.p2;
+  ap.board.forEach(c=>{c.exhausted=false;c.justPlayed=false;});
+  drawCard(ap);
+  applyTurnEffects(ap);
+  addLog(`─ Round ${G.round} — ${G.turn===1?G.p1.name:G.p2.name}'s turn. Elixir:${G.maxMana}`,'important');
+  checkGameOver();
+}
+
+function drawCard(player){
+  if(!player.deck.length){player.hp-=1;addLog(`${player.name} takes fatigue!`,'damage');return;}
+  if(player.hand.length>=8){player.deck.shift();addLog(`${player.name} hand full — burned!`,'damage');return;}
+  const c=player.deck.shift();c.justPlayed=false;c.exhausted=false;player.hand.push(c);
+}
+
+function applyTurnEffects(player){
+  player.board.forEach(c=>{
+    if(c.ability.toLowerCase().includes('fortify')){c.hp=Math.min(c.maxHp+2,c.hp+1);addLog(`✦ ${c.name} Fortify +1 HP`,'special');}
+    if(c.ability.toLowerCase().includes('regenerate')){c.hp=Math.min(c.maxHp,c.hp+1);addLog(`✦ ${c.name} Regenerate +1 HP`,'special');}
+    if(c.ability.toLowerCase().includes('overclock')){c.hp-=1;if(c.hp<=0){player.board.splice(player.board.indexOf(c),1);addLog(`⚡ ${c.name} burnt out!`,'damage');}}
+  });
+}
+
+function calcDmg(c){
+  if(c.isMultiHit){const p=c.attack.split('x').map(Number);return p[0]*p[1];}
+  let d=parseInt(c.attack)||c.rawAttack||1;
+  const cr=c.ability.match(/(\d+)% critical/i);
+  if(cr&&Math.random()*100<parseInt(cr[1])){addLog(`💥 CRIT by ${c.name}!`,'special');d*=2;}
+  return d;
+}
+
+function removeDeadCards(a,b){
+  [a,b].forEach(owner=>{
+    owner.board.filter(c=>c.hp<=0).forEach(c=>{
+      if(c.ability.toLowerCase().includes('on death')&&c.ability.toLowerCase().includes('damage')){
+        const m=c.ability.match(/deals (\d+) damage/i);
+        if(m){const sp=parseInt(m[1]);const en=owner===G.p1?G.p2:G.p1;en.board.forEach(ec=>ec.hp-=sp);en.hp-=sp;addLog(`💣 ${c.name} explodes for ${sp}!`,'damage');}
+      }
+      if(c.ability.toLowerCase().includes('resurrects')&&!c.resurrected){c.hp=1;c.resurrected=true;addLog(`🧟 ${c.name} rises!`,'special');return;}
+      addLog(`💀 ${c.name} destroyed!`,'');
+    });
+    owner.board=owner.board.filter(c=>c.hp>0);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// UI ACTIONS (called on click)
+// ═══════════════════════════════════════════════════════════
+function selectCard(source,index,ownerKey){
+  if(G.phase!=='game')return;
+  const me=NET.myRole;
+  const isMyCard=ownerKey===me;
+
+  if(!isMyTurn()){
+    // Can only click enemy cards in attack mode
+    if(G.attackMode&&!isMyCard&&source==='board'){
+      const atkC=G.selectedCard;
+      sendAction({type:'attack_card',atkOwner:me,atkIdx:atkC.index,defOwner:ownerKey,defIdx:index});
+      spawnDamageFloat(3,'enemy');
+      clearSelection();
+    }else{showToast("It's not your turn!");}
+    return;
+  }
+
+  const player=ownerKey==='p1'?G.p1:G.p2;
+  const card=source==='hand'?player.hand[index]:player.board[index];
+  if(!card)return;
+
+  if(source==='hand'){
+    if(G.currentMana<card.cost){showToast('Not enough Elixir!');return;}
+    sendAction({type:'play_card',handIndex:index});
+    if(NET.isHost){renderAll();}
+    return;
+  }
+
+  if(source==='board'&&isMyCard){
+    if(card.exhausted){showToast('Already acted!');return;}
+    if(card.justPlayed&&!card.ability.toLowerCase().includes('arcane')){showToast('Needs a turn to prepare!');return;}
+    if(G.selectedCard&&G.selectedCard.card===card){clearSelection();return;}
+    G.selectedCard={source,index,card,owner:ownerKey};
+    G.attackMode=true;
+    showToast('Choose a target to attack →');
+    if(!NET.isHost)renderAll(); // Guest updates local selection highlight
+    else renderAll();
+  }
+}
+
+function selectHeroTarget(targetOwner){
+  if(!G.attackMode||!G.selectedCard)return;
+  const isEnemy=(NET.myRole==='p1'&&targetOwner==='p2')||(NET.myRole==='p2'&&targetOwner==='p1');
+  if(!isEnemy){showToast("You can't attack yourself!");return;}
+  const enemyBoard=(NET.myRole==='p1'?G.p2:G.p1).board;
+  if(enemyBoard.some(c=>c.ability.toLowerCase().includes('taunt'))){showToast('Attack the Taunt creature first!');return;}
+  sendAction({type:'attack_hero',atkOwner:NET.myRole,atkIdx:G.selectedCard.index,targetOwner});
+  spawnDamageFloat(G.selectedCard.card.rawAttack,'enemy');
+  clearSelection();
+}
+
+function endTurn(){
+  if(!isMyTurn()){showToast("It's not your turn!");return;}
+  clearSelection();
+  sendAction({type:'end_turn'});
+  document.getElementById('btn-end-turn').disabled=true;
+}
+
+function clearSelection(){G.selectedCard=null;G.attackMode=false;renderAll();}
+
+// ═══════════════════════════════════════════════════════════
+// GAME OVER
+// ═══════════════════════════════════════════════════════════
+function checkGameOver(){
+  if(G.phase!=='game')return;
+  if(G.p1.hp<=0||G.p2.hp<=0){
+    G.phase='over';
+    const winner=G.p1.hp>0?G.p1:G.p2;
+    const isIWon=(NET.myRole==='p1'&&G.p1.hp>0)||(NET.myRole==='p2'&&G.p2.hp>0);
+    document.getElementById('gameover-title').textContent=isIWon?'🏆 Victory!':'💀 Defeat';
+    document.getElementById('gameover-subtitle').textContent=isIWon?'You prevailed in the Arcane Duel!':'Your opponent wins this time.';
+    document.getElementById('gameover-overlay').classList.remove('hidden');
+    if(NET.isHost)broadcastState();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════
+function renderAll(){
+  if(G.phase==='lobby'||G.phase==='pregame')return;
+  renderHP();renderMana();renderBoards();renderHands();
+  document.getElementById('turn-display').textContent=isMyTurn()?'YOUR TURN':'OPPONENT\'S TURN';
+  document.getElementById('turn-display').className='turn-player'+(isMyTurn()?' my-turn':'');
+  document.getElementById('btn-end-turn').disabled=!isMyTurn()||(G.phase!=='game');
+}
+
+function renderHP(){
+  const me=myPlayer(),op=oppPlayer();
+  const pct1=Math.max(0,me.hp/me.maxHp*100);
+  const pct2=Math.max(0,op.hp/op.maxHp*100);
+  document.getElementById('player-hp-fill').style.width=pct1+'%';
+  document.getElementById('enemy-hp-fill').style.width=pct2+'%';
+  document.getElementById('player-hp-text').textContent=`${Math.max(0,me.hp)}/${me.maxHp}`;
+  document.getElementById('enemy-hp-text').textContent=`${Math.max(0,op.hp)}/${op.maxHp}`;
+  document.getElementById('player-deck-count').textContent=me.deck.length;
+  document.getElementById('enemy-deck-count').textContent=op.deck.length;
+}
+
+function renderMana(){
+  const pips=document.getElementById('mana-pips');pips.innerHTML='';
+  for(let i=0;i<G.maxMana;i++){
+    const p=document.createElement('div');
+    p.className='mana-pip'+(i<G.currentMana?' filled':'');pips.appendChild(p);
+  }
+  document.getElementById('mana-number').textContent=`${G.currentMana}/${G.maxMana}`;
+}
+
+function renderBoards(){
+  const me=myPlayer(),op=oppPlayer();
+  const meKey=NET.myRole,opKey=NET.myRole==='p1'?'p2':'p1';
+
+  const pb=document.getElementById('player-battlefield');
+  pb.innerHTML='';
+  if(!me.board.length){pb.innerHTML='<span class="battlefield-empty">— Play a card —</span>';}
+  else me.board.forEach((card,i)=>{
+    const el=buildCard(card,'board',i,meKey,false);
+    const canAct=isMyTurn()&&!card.exhausted&&(!card.justPlayed||card.ability.toLowerCase().includes('arcane'));
+    el.classList.toggle('can-attack',canAct&&!G.attackMode);
+    if(G.selectedCard&&G.selectedCard.card===card)el.classList.add('selected');
+    pb.appendChild(el);
+  });
+
+  const eb=document.getElementById('enemy-battlefield');
+  eb.innerHTML='';
+  if(!op.board.length){eb.innerHTML='<span class="battlefield-empty">— No creatures —</span>';}
+  else op.board.forEach((card,i)=>{
+    const el=buildCard(card,'board',i,opKey,true);
+    if(G.attackMode)el.classList.add('target-glow');
+    eb.appendChild(el);
+  });
+
+  // Hero portraits as targets
+  const ep=document.getElementById('enemy-portrait');
+  const pp=document.getElementById('player-portrait');
+  if(G.attackMode&&isMyTurn()){
+    ep.classList.add('targetable');
+    ep.onclick=()=>selectHeroTarget(opKey);
+    pp.onclick=()=>selectHeroTarget(meKey);
+  }else{
+    ep.classList.remove('targetable');
+    ep.onclick=null;pp.onclick=null;
+  }
+}
+
+function renderHands(){
+  const ph=document.getElementById('player-hand');ph.innerHTML='';
+  const me=myPlayer(),meKey=NET.myRole;
+  me.hand.forEach((card,i)=>{
+    const el=buildCard(card,'hand',i,meKey,false);
+    const canPlay=isMyTurn()&&G.currentMana>=card.cost&&G.phase==='game';
+    el.classList.toggle('unplayable',!canPlay);
+    ph.appendChild(el);
+  });
+
+  const eh=document.getElementById('enemy-hand-display');eh.innerHTML='';
+  const op=oppPlayer();
+  for(let i=0;i<Math.min(op.hand.length,6);i++){
+    const b=document.createElement('div');b.className='card-back';b.textContent='🂠';eh.appendChild(b);
+  }
+}
+
+function buildCard(card,source,index,owner,isEnemy){
+  const el=document.createElement('div');
+  el.className=`card${isEnemy?' enemy-card':''}`;
+  el.dataset.tooltip=`${card.ability}\n"${card.flavorText}"`;
+  const hpLow=card.hp<=Math.ceil(card.maxHp*.3);
+  el.innerHTML=`
+    <div class="card-cost">${card.cost}</div>
+    <div class="card-art">${card.emoji}</div>
+    <div class="card-name">${card.name}</div>
+    <div class="card-stats">
+      <span class="stat-attack">⚔ ${card.attack}</span>
+      <span class="stat-hp${hpLow?' low':''}">❤ ${card.hp}</span>
+    </div>
+    <div class="card-ability-icon">✦ ${card.ability.substring(0,28)}${card.ability.length>28?'…':''}</div>
+  `;
+  el.addEventListener('click',()=>selectCard(source,index,owner));
+  return el;
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════
+function show(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+
+function addLog(msg,type=''){
+  const log=document.getElementById('game-log');
+  const e=document.createElement('div');e.className=`log-entry ${type}`;e.textContent=msg;
+  log.appendChild(e);log.scrollTop=log.scrollHeight;
+  while(log.children.length>40)log.removeChild(log.firstChild);
+}
+
+function showToast(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+function spawnDamageFloat(amount,side){
+  const el=document.createElement('div');el.className='damage-float';el.textContent=`-${amount}`;
+  el.style.left=(side==='enemy'?window.innerWidth*.65:window.innerWidth*.35)+'px';
+  el.style.top=(side==='enemy'?window.innerHeight*.25:window.innerHeight*.75)+'px';
+  document.body.appendChild(el);setTimeout(()=>el.remove(),1000);
+}
+
+// Guest receives state and needs to start game UI
+function handleFirstState(){
+  if(G.phase==='game'&&document.getElementById('game-screen').classList.contains('hidden')){
+    startGameUI();
+  }
+}
+
+// Patch applyState to trigger UI start for guest
+const _origApply=applyState;
+function applyState(state){
+  _origApply(state);
+  if(!NET.isHost)handleFirstState();
+  checkGameOver();
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown',e=>{
+  if((e.key==='e'||e.key==='E')&&G.phase==='game')endTurn();
+  if(e.key==='Escape')clearSelection();
+});
+
+// ─── BOOT ─────────────────────────────────────────────────
+initLobby();
+console.log('%cARCANE DUEL ONLINE — P2P via PeerJS WebRTC','color:#c9a227;font-size:14px;font-weight:bold;');
+</script>
+</body>
+</html>
