@@ -891,6 +891,7 @@ function initLobby(){
           setNetStatus('Connected!','connected');
           addLog('🔗 Opponent connected!','important');
           send({type:'opponent_joined'});
+          setTimeout(()=>showPregame(), 300); // Host goes to word screen
         });
         conn.on('data',onMessage);
         conn.on('close',()=>setNetStatus('Disconnected','error'));
